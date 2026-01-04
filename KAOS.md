@@ -105,3 +105,102 @@ To resolve these threats, we introduce the following Security Requirements:
 | **SR-3** | Spring Security Config | Counteracts `NoteContentKnownByUnauthorizedUser` | Pending               |
 | **SR-4** | Note Locking Mechanism | Counteracts `SimultaneousWriteConflict` | Pending               |
 | **SR-5** | Database Replication | Counteracts `StorageNodeFailure` | Pending               |
+
+
+```mermaid
+graph TD
+%% --- STYLING (Black & White KAOS Style) ---
+%% White background, black lines, black text
+    classDef default fill:#fff,stroke:#000,stroke-width:1px,color:#000;
+    classDef boldBorder fill:#fff,stroke:#000,stroke-width:3px,color:#000;
+    classDef dashed fill:#fff,stroke:#000,stroke-width:1px,stroke-dasharray: 5 5,color:#000;
+
+%% --- ROOT ANTI-GOAL ---
+%% Bold border to represent the initial anti-goal
+    AG_Root[/Achieve NoteContentKnownByUnauthorizedUser/]:::boldBorder
+
+%% --- THREATS (Refinements) ---
+    AG_Guess[/Threat A: AccessNoteByGuessingID/]
+    AG_SQL[/Threat B: AccessNoteBySQLInjection/]
+    AG_Hijack[/Threat C: AccessNoteBySessionHijacking/]
+
+%% Connect Root to Threats
+    AG_Root --> AG_Guess
+    AG_Root --> AG_SQL
+    AG_Root --> AG_Hijack
+
+%% --- VULNERABILITIES (Leaf Nodes) ---
+%% Represented as Pentagons ("House" shape)
+    Vuln_SeqID{{Vulnerability: Sequential IDs}}
+    Vuln_Concat{{Vulnerability: Concatenated SQL Input}}
+    Vuln_Sess{{Vulnerability: Exposed Session IDs}}
+
+    AG_Guess --> Vuln_SeqID
+    AG_SQL --> Vuln_Concat
+    AG_Hijack --> Vuln_Sess
+
+%% --- COUNTERMEASURES ---
+%% Dashed lines indicating resolution
+    CM_UUID[/Req: Avoid PredictableResourceIDs/]:::dashed
+    CM_JPA[/Req: Avoid UnsanitizedDatabaseInput/]:::dashed
+    CM_Sec[/Req: Maintain SecureSessionManagement/]:::dashed
+
+    CM_UUID -. resolves .-> Vuln_SeqID
+    CM_JPA -. resolves .-> Vuln_Concat
+    CM_Sec -. resolves .-> Vuln_Sess
+```
+
+
+```mermaid
+graph TD
+%% --- STYLING (Black & White KAOS Style) ---
+classDef default fill:#fff,stroke:#000,stroke-width:1px,color:#000;
+classDef boldBorder fill:#fff,stroke:#000,stroke-width:3px,color:#000;
+classDef dashed fill:#fff,stroke:#000,stroke-width:1px,stroke-dasharray: 5 5,color:#000;
+
+    %% --- ROOT ANTI-GOAL ---
+    AG_Root[/Achieve NoteOverwrittenByConcurrentEdit/]:::boldBorder
+
+    %% --- THREATS ---
+    AG_Conflict[/Threat D: Achieve SimultaneousWriteConflict/]
+
+    %% Connect Root to Threat
+    AG_Root --> AG_Conflict
+
+    %% --- VULNERABILITIES ---
+    Vuln_Lock{{Vulnerability: Lack of Concurrency Control}}
+
+    AG_Conflict --> Vuln_Lock
+
+    %% --- COUNTERMEASURES ---
+    CM_Lock[/Req: Achieve ApplicationLevelLocking/]:::dashed
+
+    CM_Lock -. resolves .-> Vuln_Lock
+```
+
+```mermaid
+graph TD
+    %% --- STYLING (Black & White KAOS Style) ---
+    classDef default fill:#fff,stroke:#000,stroke-width:1px,color:#000;
+    classDef boldBorder fill:#fff,stroke:#000,stroke-width:3px,color:#000;
+    classDef dashed fill:#fff,stroke:#000,stroke-width:1px,stroke-dasharray: 5 5,color:#000;
+
+    %% --- ROOT ANTI-GOAL ---
+    AG_Root[/Achieve NoteServiceUnavailable/]:::boldBorder
+
+    %% --- THREATS ---
+    AG_Fail[/Threat E: Achieve StorageNodeFailure/]
+
+    %% Connect Root to Threat
+    AG_Root --> AG_Fail
+
+    %% --- VULNERABILITIES ---
+    Vuln_SPOF{{Vulnerability: Single Database Instance}}
+
+    AG_Fail --> Vuln_SPOF
+
+    %% --- COUNTERMEASURES ---
+    CM_Repl[/Req: Maintain DataReplication/]:::dashed
+
+    CM_Repl -. resolves .-> Vuln_SPOF
+```
