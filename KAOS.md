@@ -192,7 +192,6 @@ graph TD
     CM_NoCache -.-> Vuln_Cache  
 ```
 
-
 ## 3. Integrity Goals (Concurrency & Locking)
 
 ### 3.1 The System Goal
@@ -202,13 +201,14 @@ graph TD
 
 **Definition:**  
 A Note `n` can only be updated by User `u` if:
-- `u` has **WRITE permission** on `n`, and
-- `n` is **currently locked by u** at the time of the update (the lock is valid and not expired), and
-- the update is applied to the **current state of the note**.
+- `u` has **WRITE** permission on `n`, and
+- `n` is **currently locked by `u`** at the time of the update (the lock is valid and not expired), and
+- the update is applied to the **current state of the note**, and
+- all authorization, lock, and concurrency checks together with the update are executed **atomically**.
+
 
 This goal enforces data integrity, preventing accidental or malicious overwrites and unauthorized modifications.
 
----
 
 ### 3.2 The Anti-Model
 
@@ -218,14 +218,13 @@ This goal enforces data integrity, preventing accidental or malicious overwrites
 #### Threat Tree Refinement  
 **How can the attacker achieve this?**
 
----
 
 ### Threat M: Achieve `[SimultaneousWriteConflict]`
 
-**Scenario (general):**  
-User A and User B open the same note.  
-User A saves changes.  
-User B saves changes shortly after, overwriting User A’s work.
+**Scenario (general):**
+- User A and User B open the same note.
+- User A saves changes.
+- User B saves changes shortly after, overwriting User A’s work.
 
 #### Threat M – Sub-cases
 
@@ -249,19 +248,18 @@ User B saves changes shortly after, overwriting User A’s work.
 - *Scenario:* User B attempts to unlock or re-lock a note currently locked by User A via a direct API call, then overwrites the content.  
 - *Vulnerability:* The server does not enforce that only the lock owner (or an expired-lock policy) can unlock or change lock ownership.
 
----
 
 ### Threat N: Achieve `[WriteByReadOnlyUser]`
 
-**Scenario (general):**  
-User A shares a note with User B granting only **READ** permission.  
-User B manually sends an HTTP request to modify the note.
+**Scenario (general):**
+- User A shares a note with User B granting only **READ** permission.
+- User B manually sends an HTTP request to modify the note.
 
 #### Threat N – Sub-cases
 
 **Threat N1: RawHTTPRequestByReadOnlyUser**  
 - *Scenario:* User B crafts a `POST/PUT /api/notes/{id}` request manually.  
-- *Vulnerability:* The backend verifies authentication but not **WRITE authorization**.
+- *Vulnerability:* The backend verifies authentication but not **WRITE** authorization.
 
 **Threat N2: UIOnlyAuthorization**  
 - *Scenario:* The UI disables the edit button, but the server trusts the UI state.  
@@ -274,14 +272,13 @@ User B manually sends an HTTP request to modify the note.
 **Attacker Capability:**  
 The attacker can craft raw HTTP requests bypassing frontend restrictions.
 
----
 
 ### Threat P: Achieve `[WriteAfterLockExpiration]`
 
-**Scenario (general):**  
-User A acquires a lock on a note and enters edit mode.  
-User becomes inactive for a long period.  
-The lock expires, but User A sends an outdated update request.
+**Scenario (general):**
+- User A acquires a lock on a note and enters edit mode.
+- User becomes inactive for a long period.
+- The lock expires, but User A sends an outdated update request.
 
 #### Threat P – Sub-cases
 
@@ -293,11 +290,28 @@ The lock expires, but User A sends an outdated update request.
 - *Scenario:* An old update request is resent after the lock has expired.  
 - *Vulnerability:* No freshness or state validation is performed at write time.
 
----
+
+### Threat R: Achieve `[InconsistentWriteAcrossReplicas]`
+
+**Scenario (general):**
+- The system runs on two replicated servers.
+- Lock or note version information differs between replicas due to replication delay.
+- A write request is accepted on a replica holding stale state.
+
+#### Threat R – Sub-cases
+
+**Threat R1: NonGlobalLockState**  
+- *Scenario:* A note is locked on one server but appears unlocked on another.  
+- *Vulnerability:* Lock state is not globally consistent.
+
+**Threat R2: DivergentVersionAcceptance**  
+- *Scenario:* Two replicas accept updates using the same version identifier.  
+- *Vulnerability:* Version identifiers are not globally monotonic.
+
 
 ### 3.3 Derived Countermeasures
 
-#### Countermeasure 4 (Protects against Threat M and Threat P)
+#### Countermeasure 7 (Protects against Threat M and Threat P)
 
 **Achieve `[ApplicationLevelLocking]`**
 
@@ -317,9 +331,12 @@ Implement a strict **Locked Mode**, enforced server-side.
       - deny lock acquisition.
 
 - **Update validation (`POST/PUT /api/notes/{id}`):**
+  - verify WRITE permission
   - verify `lockedBy == User`
   - verify `currentTime < lockedAt + TTL`
-  - if lock expired → reject update and require re-lock.
+  - verify concurrency token (see CM9)
+  - apply update and version increment atomically
+  - if any check fails → reject without modifying state.
 
 - **Unlock:**
   - allow unlock only if:
@@ -327,15 +344,10 @@ Implement a strict **Locked Mode**, enforced server-side.
     - lock is expired (automatic cleanup).
 
 **Effect:**  
-Prevents:
-- simultaneous writes,
-- updates without lock,
-- updates using expired locks,
-- unauthorized lock manipulation.
+Prevents simultaneous writes, updates without lock, updates using expired locks, unauthorized lock manipulation, and race conditions between validation and persistence.
 
----
 
-#### Countermeasure 5 (Protects against Threat N)
+#### Countermeasure 8 (Protects against Threat N)
 
 **Maintain `[GranularPermissionChecks]`**
 
@@ -350,23 +362,57 @@ Enforce **Role-Based Access Control (RBAC)** at API/service level.
 **Effect:**  
 Ensures that read-only users cannot modify notes, regardless of UI behavior.
 
----
 
-#### Countermeasure 6 (Protects against Threat M4)
+#### Countermeasure 9 (Protects against Threat M4 and Threat P2)
 
 **Maintain `[ConcurrencyTokenCheck]`**
 
 **Implementation:**  
-Associate each note with a **state identifier** (e.g., version number or ETag).
+Associate each note with a **state identifier** (monotonically increasing version number or ETag).
 
 **Logic:**
 - Client retrieves the note with its state identifier.
 - Client sends the identifier with the update request.
-- Server verifies that the identifier matches the current note state.
+- Server verifies the identifier matches the current note state.
 - If it does not match → reject the update (`409 Conflict`).
 
 **Effect:**  
-Prevents lost updates by ensuring that updates are applied only to the current state of a note.
+Prevents lost updates and replay of outdated update requests.
+
+
+#### Countermeasure 10 (Protects against Threat R)
+
+**Maintain `[SingleWriterForReplicatedSystem]`**
+
+**Implementation:**  
+Enforce a **single-writer policy**.
+
+**Logic:**
+- Only one server (leader) accepts `LOCK` and `WRITE` operations.
+- Secondary replicas serve read-only requests.
+- All lock and version updates are generated exclusively by the leader.
+- Write requests received by non-leader replicas are rejected or redirected.
+
+**Effect:**  
+Prevents inconsistent writes, split-brain behavior, and divergence of lock or version state across replicas.
+
+
+#### Countermeasure 11 (Supports Threat P)
+
+**Achieve `[LockRenewal]`**
+
+**Implementation:**  
+Introduce explicit lock renewal.
+
+**Logic:**
+- Client periodically sends `LOCK_RENEW` requests.
+- Only the lock owner may renew.
+- Renewal extends lock validity (`lockedAt` or `lockExpiresAt`).
+- If renewals stop, the lock expires automatically.
+
+**Effect:**  
+Prevents accidental lock expiration during long editing sessions while preserving recovery from abandoned locks.
+
 ```mermaid
 graph TD
 %% ================== STYLING ==================
@@ -381,10 +427,12 @@ AG[/Achieve NoteContentModifiedWithoutValidLockOrAuthorization/]:::bold
 M[/Threat M: SimultaneousWriteConflict/]
 N[/Threat N: WriteByReadOnlyUser/]
 P[/Threat P: WriteAfterLockExpiration/]
+R[/Threat R: InconsistentWriteAcrossReplicas/]
 
 AG --> M
 AG --> N
 AG --> P
+AG --> R
 
 %% ================== THREAT M SUB-CASES ==================
 M1[/M1: UpdateWithoutHoldingLock/]
@@ -401,10 +449,10 @@ M --> M5
 
 %% ================== THREAT M VULNERABILITIES ==================
 VM1{{No lock ownership check on update}}
-VM2{{Update endpoint does not enforce lock acquisition}}
-VM3{{Missing lock TTL / recovery mechanism}}
-VM4{{Missing state/version verification}}
-VM5{{Unlock not restricted to lock owner}}
+VM2{{Update endpoint does not enforce lock acquisition or ownership}}
+VM3{{Missing lock TTL and recovery}}
+VM4{{Missing current state or version validation}}
+VM5{{Unlock or lock ownership not restricted}}
 
 M1 --> VM1
 M2 --> VM2
@@ -422,7 +470,7 @@ N --> N2
 N --> N3
 
 %% ================== THREAT N VULNERABILITIES ==================
-VN1{{Missing WRITE authorization at API}}
+VN1{{Missing server side WRITE authorization}}
 VN2{{Authorization enforced only in UI}}
 VN3{{Permissions not rechecked per request}}
 
@@ -438,93 +486,180 @@ P --> P1
 P --> P2
 
 %% ================== THREAT P VULNERABILITIES ==================
-VP1{{Lock validity (TTL) not checked}}
-VP2{{No freshness/state validation}}
+VP1{{Lock validity TTL not checked at write time}}
+VP2{{No freshness or current state validation on update}}
 
 P1 --> VP1
 P2 --> VP2
 
+%% ================== THREAT R SUB-CASES ==================
+R1[/R1: NonGlobalLockState/]
+R2[/R2: DivergentVersionAcceptance/]
+
+R --> R1
+R --> R2
+
+%% ================== THREAT R VULNERABILITIES ==================
+VR1{{Lock state not globally consistent due to replication delay}}
+VR2{{Version identifiers not globally monotonic or unique for writes}}
+
+R1 --> VR1
+R2 --> VR2
+
 %% ================== COUNTERMEASURES ==================
-CM4[/CM4: ApplicationLevelLocking/]:::dashed
-CM5[/CM5: GranularPermissionChecks/]:::dashed
-CM6[/CM6: ConcurrencyTokenCheck/]:::dashed
+CM7[/CM7: ApplicationLevelLocking - atomic checks and update/]:::dashed
+CM8[/CM8: GranularPermissionChecks - RBAC/]:::dashed
+CM9[/CM9: ConcurrencyTokenCheck - version ETag/]:::dashed
+CM10[/CM10: SingleWriterForReplicatedSystem/]:::dashed
+CM11[/CM11: LockRenewal/]:::dashed
 
 %% ================== RESOLUTION LINKS ==================
-CM4 -. resolves .-> VM1
-CM4 -. resolves .-> VM2
-CM4 -. resolves .-> VM3
-CM4 -. resolves .-> VM5
-CM4 -. resolves .-> VP1
-CM4 -. resolves .-> VP2
+CM7 -. resolves .-> VM1
+CM7 -. resolves .-> VM2
+CM7 -. resolves .-> VM3
+CM7 -. resolves .-> VM5
+CM7 -. resolves .-> VP1
 
-CM5 -. resolves .-> VN1
-CM5 -. resolves .-> VN2
-CM5 -. resolves .-> VN3
+CM8 -. resolves .-> VN1
+CM8 -. resolves .-> VN2
+CM8 -. resolves .-> VN3
 
-CM6 -. resolves .-> VM4
+CM9 -. resolves .-> VM4
+CM9 -. resolves .-> VP2
+
+CM10 -. resolves .-> VR1
+CM10 -. resolves .-> VR2
+
+CM11 -. supports .-> VP1
+
 
 ```
 
-## 4. Availability Goals (Resilient Storage)
+## 4. Availability Goals (Resilient Storage & Uptime)
 
 ### 4.1 The System Goal
 **Goal:** `Achieve [NoteAccessWhenNeeded]`<br>
 **Formal Pattern:** `Achieve [ObjectInfoUsableWhenNeededAndAuthorized]`<br>
-**Definition:** Authorized users must be able to retrieve their notes even if a primary storage node fails.
+**Definition:** Authorized users must be able to retrieve their notes even if a storage node fails or the network is under stress.
 
 ### 4.2 The Anti-Model
 **Anti-Goal:** `Achieve [NoteServiceUnavailable]`<br>
-**Attacker:** DoS Attacker or Physical Infrastructure Failure.
+**Attacker:** Vandal / Extortionist (Active); Physical Infrastructure (Passive).<br>
+**Strategic Motive:** `Achieve [BusinessDisruption]` or `Achieve [RansomDemand]`.
 
 #### Threat Tree Refinement:
-1.  **Threat F:** `Achieve [StorageNodeFailure]`
-    * **Vulnerability:** The system relies on a single database instance (`db-master`). If this container stops, data is inaccessible.
+1.  **Threat G (Storage):** `Achieve [StorageNodeFailure]`
+    * **Scenario:** The primary database container crashes or the disk corrupts.
+    * **Vulnerability:** System relies on a single database instance (SPOF).
+2.  **Threat H (Compute):** `Achieve [AppServerFailure]`
+    * **Scenario:** The REST API process on Server A crashes due to a memory leak or bug.
+    * **Vulnerability:** Client requests are hardcoded to a single server IP; no automatic failover to Server B.
+3.  **Threat I (Network):** `Achieve [ServiceFlooded]` (DoS)
+    * **Scenario:** An attacker sends 10,000 requests/second to the API, exhausting connection pools.
+    * **Vulnerability:** Lack of **Rate Limiting** or Traffic Throttling in the API gateway.
+    * **Attacker Capability:** Use of botnets or scripts (e.g., Low Orbit Ion Cannon).
 
 ### 4.3 Derived Countermeasures
-* **Countermeasure 6 (Protects against Threat E):** `Maintain [DataReplication]`
-    * **Implementation:** Deploy two distinct backend server instances connected to a replicated SQL database cluster.
-    * *Architecture:*
-        1.  **Primary Node (Server A):** Handles Writes and Reads.
-        2.  **Replica Node (Server B):** Handles Reads (and failover Writes if promoted).
-        3.  **Failover Logic:** The application configuration must allow switching the Data Source URL if the primary connection times out.
+* **Countermeasure 12 (Protects against Threat G):** `Maintain [DataReplication]`
+    * **Implementation:** Deploy **Primary-Replica SQL Architecture**.
+    * *Logic:* Writes go to Primary. Reads can go to Replica. If Primary dies, Replica is promoted.
+
+* **Countermeasure 13 (Protects against Threat H):** `Achieve [LoadBalancing]`
+    * **Implementation:** Put a **Load Balancer** (e.g., Nginx or HAProxy) in front of the two application servers.
+    * *Logic:* The frontend connects to `lb.domain.com`. The LB forwards traffic to `server1` or `server2` based on health checks.
+
+* **Countermeasure 14 (Protects against Threat I):** `Avoid [ResourceExhaustion]`
+    * **Implementation:** Implement **Rate Limiting** (e.g., 100 req/min per IP).
+    * *Spring Boot:* Use `Bucket4j` or Spring Cloud Gateway RateLimiter.
 
 ```mermaid
 graph TD
-    %% --- STYLING (Black & White KAOS Style) ---
-    classDef default fill:#fff,stroke:#000,stroke-width:1px,color:#000;
-    classDef boldBorder fill:#fff,stroke:#000,stroke-width:3px,color:#000;
-    classDef dashed fill:#fff,stroke:#000,stroke-width:1px,stroke-dasharray: 5 5,color:#000;
+    %% --- STYLING ---
+    classDef root fill:#fff,stroke:#000,stroke-width:3px,color:#000;
+    classDef goal fill:#fff,stroke:#000,stroke-width:1px,color:#000;
+    classDef antiReq fill:#e0e0e0,stroke:#000,stroke-width:1px,color:#000;
+    classDef vuln fill:#f9f9f9,stroke:#000,stroke-width:1px,stroke-dasharray: 5 5,color:#000;
+    classDef cm fill:#fff,stroke:#000,stroke-width:1px,stroke-dasharray: 2 2,color:#000;
 
-    %% --- ROOT ANTI-GOAL ---
-    AG_Root[/Achieve NoteServiceUnavailable/]:::boldBorder
+    %% ==========================================
+    %% STRATEGIC ROOTS
+    %% ==========================================
+    AG_Root[/Achieve ServiceDisruption/]:::root
+    
+    %% ==========================================
+    %% INITIAL ANTI-GOAL
+    %% ==========================================
+    AG_Unavailable[/Achieve NoteServiceUnavailable/]:::goal
+    AG_Root --> AG_Unavailable
 
-    %% --- THREATS ---
-    AG_Fail[/Threat E: Achieve StorageNodeFailure/]
+    %% ==========================================
+    %% BRANCH 1: ACTIVE ATTACKS (Deep Refinement)
+    %% ==========================================
+    %% The attacker must choose a strategy to take down the service.
+    
+    AG_DoS[/Achieve ServiceFlooded/]:::goal
+    AG_Unavailable --> AG_DoS
 
-    %% Connect Root to Threat
-    AG_Root --> AG_Fail
+    AG_Exhaust[/Achieve ResourcesExhausted/]:::goal
+    AG_DoS --> AG_Exhaust
 
-    %% --- VULNERABILITIES ---
-    Vuln_SPOF{{Vulnerability: Single Database Instance}}
+    %% Deepening the specific resource attack
+    AG_Pool[/Achieve ConnectionPoolDepletion/]:::goal
+    AG_Exhaust --> AG_Pool
 
-    AG_Fail --> Vuln_SPOF
+    AR_Flood[Anti-Req: RunBotnetScript]:::antiReq
+    Vuln_NoLimit{{Vuln: UnboundedRequestProcessing}}:::vuln
+    
+    AG_Pool --> AR_Flood
+    AG_Pool --> Vuln_NoLimit
 
-    %% --- COUNTERMEASURES ---
-    CM_Repl[/Req: Maintain DataReplication/]:::dashed
+    CM_RateLimit[Req: Avoid ResourceExhaustion]:::cm
+    CM_RateLimit -.-> Vuln_NoLimit
 
-    CM_Repl -. resolves .-> Vuln_SPOF
+    %% ==========================================
+    %% BRANCH 2: PASSIVE FAILURES (Infrastructure)
+    %% ==========================================
+    %% These are naturally shallower but we group them logically.
+    
+    AG_Infra[/Achieve InfrastructureFailure/]:::goal
+    AG_Unavailable --> AG_Infra
+
+    %% --- THREAT G: STORAGE FAILURE ---
+    AG_Storage[/Achieve StorageNodeCrash/]:::goal
+    AG_Infra --> AG_Storage
+
+    Vuln_SPOF{{Vuln: SinglePointOfFailure_DB}}:::vuln
+    AG_Storage --> Vuln_SPOF
+
+    CM_Replica[Req: Maintain DataReplication]:::cm
+    CM_Replica -.-> Vuln_SPOF
+
+    %% --- THREAT H: COMPUTE FAILURE ---
+    AG_Compute[/Achieve AppServerCrash/]:::goal
+    AG_Infra --> AG_Compute
+
+    Vuln_StaticIP{{Vuln: NoFailoverMechanism}}:::vuln
+    AG_Compute --> Vuln_StaticIP
+
+    CM_LB[Req: Achieve LoadBalancing]:::cm
+    CM_LB -.-> Vuln_StaticIP
 ```
-
 ## 5. Summary of Security Requirements (To-Do List)
 
-| ID | Requirement | KAOS Justification | Implementation Status |
-|----|------------|--------------------|-----------------------|
-| **SR-1** | Use UUIDs for Note IDs | Counteracts `AccessNoteByGuessingID` | Pending               |
-| **SR-2** | Spring Data JPA | Counteracts `AccessNoteBySQLInjection` | Pending               |
-| **SR-3** | Spring Security Config | Counteracts `NoteContentKnownByUnauthorizedUser` | Pending               |
-| **SR-4** | Enforce HTTPS (TLS)             | Counteracts `NoteContentSniffedOnNetwork` | Pending |
-| **SR-5** | Disable Browser Caching         | Counteracts `NoteReadFromBrowserCache`    | Pending |
-| **SR-6** | Generic Error Handling          | Counteracts `APIStructureKnown`           | Pending |
-| **SR-7** | Note Locking Mechanism | Counteracts `SimultaneousWriteConflict` | Pending               |
-| **SR-8** | Granular Write Permission Check | Counteracts `WriteByReadOnlyUser` | Pending |
-| **SR-9** | Database Replication | Counteracts `StorageNodeFailure` | Pending               |
+
+| ID | Security Requirement | KAOS Justification (Threats Addressed) | Implementation Status |
+|----|---------------------|----------------------------------------|-----------------------|
+| **SR-1** | Use UUIDs for Note IDs | Counteracts `AccessNoteByGuessingID` by preventing predictable direct object references | Pending |
+| **SR-2** | Use Spring Data JPA / Parameterized Queries | Counteracts `AccessNoteBySQLInjection` by avoiding unsanitized SQL input | Pending |
+| **SR-3** | Secure Session Management (Spring Security) | Counteracts `AccessNoteBySessionHijacking` via HTTP-Only cookies, secure session handling | Pending |
+| **SR-4** | Enforce HTTPS (TLS) and redirect HTTP → HTTPS | Counteracts `NoteContentSniffedOnNetwork` by encrypting all client-server traffic | Pending |
+| **SR-5** | Disable Browser Caching (`Cache-Control: no-store`) | Counteracts `NoteReadFromBrowserCache` on shared or public devices | Pending |
+| **SR-6** | Generic Error Handling (no stack traces / verbose errors) | Counteracts `APIStructureKnown` by preventing reconnaissance via error messages | Pending |
+| **SR-7** | Application-Level Note Locking with TTL (Locked Mode) | Counteracts `SimultaneousWriteConflict`, `WriteAfterLockExpiration`, `UnauthorizedUnlockOrLockStealing` | Pending |
+| **SR-8** | Granular WRITE Permission Checks (RBAC, server-side per request) | Counteracts `WriteByReadOnlyUser` regardless of UI restrictions | Pending |
+| **SR-9** | Concurrency Token Check (Version / ETag, reject stale updates with 409) | Counteracts `LostUpdateDueToMissingConcurrencyCheck`, `ReplayOfOldUpdateRequest` | Pending |
+| **SR-10** | Single-Writer Policy for Replicated System (Leader-based writes) | Counteracts `InconsistentWriteAcrossReplicas` and split-brain writes | Pending |
+| **SR-11** | Lock Renewal Endpoint (`LOCK_RENEW`) | Supports `WriteAfterLockExpiration` by preventing accidental lock expiry during long edits | Pending |
+| **SR-12** | Data Replication (Primary–Replica SQL Storage) | Counteracts `StorageNodeFailure` and single-point-of-failure risks | Pending |
+| **SR-13** | Load Balancing / Failover for Application Servers | Counteracts `AppServerFailure` by enabling automatic failover | Pending |
+| **SR-14** | Rate Limiting / Traffic Throttling | Counteracts `ServiceFlooded` (DoS) and resource exhaustion attacks | Pending |
