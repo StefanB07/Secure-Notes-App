@@ -6,6 +6,19 @@
 ## 1. Introduction
 This document defines the security requirements for the Secure Notes Application using the Anti-Model construction method described by van Lamsweerde. We proceed by defining legitimate System Goals, deriving malicious Anti-Goals (Attacker Intents), refining these into Threat Trees, and finally selecting Countermeasures (Security Requirements).
 
+## 1.1 Threat Agent Profiles (The "Who")
+Based on the Anti-Model construction method we identify the following attacker classes:
+
+1.  **The External Hacker:**
+    * **Goal:** `Achieve [SensitiveDataStolen]` (Confidentiality breach).
+    * **Capabilities:** Network sniffing, SQL injection tools (e.g., SQLMap), brute-force scripts.
+    * **Motivation:** Financial gain or identity theft.
+
+2.  **The Malicious Insider (The "Traitor"):**
+    * **Goal:** `Achieve [WriteByReadOnlyUser]` (Integrity breach).
+    * **Capabilities:** Authenticated access, knowledge of API endpoints, but limited permissions.
+    * **Motivation:** Vandalism or privilege escalation.
+
 ---
 
 ## 2. Confidentiality Goals (User Isolation)
@@ -24,11 +37,25 @@ How can the attacker achieve this?
 1.  **Threat A:** `Achieve [AccessNoteByGuessingID]`
     * **Vulnerability:** The system uses predictable, sequential IDs (e.g., `/notes/1`, `/notes/2`).
     * **Attacker Capability:** The attacker can iterate through integers to access resources they don't own.
+
 2.  **Threat B:** `Achieve [AccessNoteBySQLInjection]`
     * **Vulnerability:** User input is concatenated directly into SQL queries.
     * **Attacker Capability:** Inject SQL fragments to bypass ownership checks (e.g., `' OR '1'='1`).
+
 3.  **Threat C:** `Achieve [AccessNoteBySessionHijacking]`
     * **Vulnerability:** Session IDs are exposed or predictable.
+
+4.  **Threat D (Infrastructure):** `Achieve [NoteContentSniffedOnNetwork]`
+    * **Scenario:** An attacker on the same Wi-Fi network uses packet sniffing tools (e.g., Wireshark) to capture traffic between the user and the server.
+    * **Vulnerability:** The application uses unencrypted HTTP channels for API communication.
+
+5.  **Threat E (Client-Side):** `Achieve [NoteReadFromBrowserCache]`
+    * **Scenario:** A user accesses the app from a shared computer (library/cafe). After they log out, an attacker hits the "Back" button to view cached pages.
+    * **Vulnerability:** The server fails to send `Cache-Control: no-store` headers for sensitive JSON responses.
+
+6.  **Threat F (Reconnaissance Milestone):** `Achieve [APIStructureKnown]`
+    * **Scenario:** The attacker probes the API with malformed data to map out table names and column structures before launching an injection attack.
+    * **Vulnerability:** The application returns verbose error messages (e.g., "Syntax error in table 'users'") or exposes public Swagger/OpenAPI documentation in production.
 
 ### 2.3 Derived Countermeasures
 To resolve these threats, we introduce the following Security Requirements:
@@ -45,47 +72,124 @@ To resolve these threats, we introduce the following Security Requirements:
     * **Implementation:** Enforce strict session handling.
     * *Spring Boot:* Use **Spring Security** with HTTP-Only cookies and default session protection.
 
+* **Countermeasure 4 (Protects against Threat D):** `Maintain [StrictTransportSecurity]`
+    * **Implementation:** Enforce HTTPS for all traffic. Redirect HTTP to HTTPS.
+    * *Spring Security:* Enable `requireChannel().anyRequest().requiresSecure()`.
+
+* **Countermeasure 5 (Protects against Threat E):** `Avoid [SensitiveDataCaching]`
+    * **Implementation:** Configure HTTP headers to prevent browser caching of API responses.
+    * *Spring Security:* Add headers `Cache-Control: no-cache, no-store, max-age=0, must-revalidate`.
+
+* **Countermeasure 6 (Protects against Threat F):** `Avoid [InformationLeakage]`
+    * **Implementation:** Implement a global exception handler to return generic error messages (e.g., "An error occurred") instead of stack traces.
+
 ```mermaid
 graph TD
-%% --- STYLING (Black & White KAOS Style) ---
-%% White background, black lines, black text
-    classDef default fill:#fff,stroke:#000,stroke-width:1px,color:#000;
-    classDef boldBorder fill:#fff,stroke:#000,stroke-width:3px,color:#000;
-    classDef dashed fill:#fff,stroke:#000,stroke-width:1px,stroke-dasharray: 5 5,color:#000;
+    %% --- STYLING ---
+    classDef root fill:#fff,stroke:#000,stroke-width:3px,color:#000;
+    classDef goal fill:#fff,stroke:#000,stroke-width:1px,color:#000;
+    classDef milestone fill:#fff,stroke:#000,stroke-width:2px,stroke-dasharray: 5 5,color:#000;
+    classDef antiReq fill:#e0e0e0,stroke:#000,stroke-width:1px,color:#000;
+    classDef vuln fill:#f9f9f9,stroke:#000,stroke-width:1px,stroke-dasharray: 5 5,color:#000;
+    classDef cm fill:#fff,stroke:#000,stroke-width:1px,stroke-dasharray: 2 2,color:#000;
 
-%% --- ROOT ANTI-GOAL ---
-%% Bold border to represent the initial anti-goal
-    AG_Root[/Achieve NoteContentKnownByUnauthorizedUser/]:::boldBorder
+    %% ==========================================
+    %% STRATEGIC ROOTS
+    %% ==========================================
+    AG_L1[/Achieve SensitiveDataStolen/]:::root
+    AG_L2[/Achieve NoteContentKnownByUnauthorized/]:::goal
+    AG_L1 --> AG_L2
 
-%% --- THREATS (Refinements) ---
-    AG_Guess[/Threat A: AccessNoteByGuessingID/]
-    AG_SQL[/Threat B: AccessNoteBySQLInjection/]
-    AG_Hijack[/Threat C: AccessNoteBySessionHijacking/]
+    %% ==========================================
+    %% THREAT F: RECONNAISSANCE (The Milestone)
+    %% ==========================================
+    AG_Milestone[/Milestone: Achieve APIStructureKnown/]:::milestone
+    AG_L2 --> AG_Milestone
 
-%% Connect Root to Threats
-    AG_Root --> AG_Guess
-    AG_Root --> AG_SQL
-    AG_Root --> AG_Hijack
+    Vuln_Verbose{{Vuln: VerboseErrorMessages}}:::vuln
+    AG_Milestone --> Vuln_Verbose
+    
+    CM_Errors[Req: GenericErrorHandling]:::cm
+    CM_Errors -.-> Vuln_Verbose
 
-%% --- VULNERABILITIES (Leaf Nodes) ---
-%% Represented as Pentagons ("House" shape)
-    Vuln_SeqID{{Vulnerability: Sequential IDs}}
-    Vuln_Concat{{Vulnerability: Concatenated SQL Input}}
-    Vuln_Sess{{Vulnerability: Exposed Session IDs}}
+    %% ==========================================
+    %% THREATS A & B: APPLICATION LOGIC ATTACKS
+    %% ==========================================
+    AG_AppLogic[/Achieve AccessViaAppLogic/]:::goal
+    AG_Milestone --> AG_AppLogic
 
-    AG_Guess --> Vuln_SeqID
-    AG_SQL --> Vuln_Concat
+    %% --- THREAT A: ID GUESSING ---
+    AG_L4_Direct[/Achieve AccessViaDirectReference/]:::goal
+    AG_AppLogic --> AG_L4_Direct
+
+    AG_L5_Probe[/Achieve ValidTargetIDIdentified/]:::goal
+    AG_L4_Direct --> AG_L5_Probe
+
+    AR_Iterate[Anti-Req: CheckIteratedIntegers]:::antiReq
+    Vuln_SeqID{{Vuln: PredictableSequentialIDs}}:::vuln
+    AG_L5_Probe --> AR_Iterate
+    AG_L5_Probe --> Vuln_SeqID
+    
+    CM_UUID[Req: Avoid PredictableIDs]:::cm
+    CM_UUID -.-> Vuln_SeqID
+
+    %% --- THREAT B: SQL INJECTION ---
+    AG_L4_Inject[/Achieve AccessViaQueryManipulation/]:::goal
+    AG_AppLogic --> AG_L4_Inject
+
+    AG_L5_Bypass[/Achieve AuthLogicBypassed/]:::goal
+    AG_L4_Inject --> AG_L5_Bypass
+
+    AR_SQL[Anti-Req: InjectSQLFragment]:::antiReq
+    Vuln_Sanity{{Vuln: UnsanitizedInput}}:::vuln
+    AG_L5_Bypass --> AR_SQL
+    AG_L5_Bypass --> Vuln_Sanity
+
+    CM_JPA[Req: Avoid UnsanitizedInput]:::cm
+    CM_JPA -.-> Vuln_Sanity
+
+    %% ==========================================
+    %% THREAT C: SESSION HIJACKING
+    %% ==========================================
+    AG_Hijack[/Achieve AccessViaSessionTheft/]:::goal
+    AG_L2 --> AG_Hijack
+
+    AR_Steal[Anti-Req: StealSessionToken]:::antiReq
+    Vuln_Sess{{Vuln: WeakSessionConfig}}:::vuln
+    AG_Hijack --> AR_Steal
     AG_Hijack --> Vuln_Sess
 
-%% --- COUNTERMEASURES ---
-%% Dashed lines indicating resolution
-    CM_UUID[/Req: Avoid PredictableResourceIDs/]:::dashed
-    CM_JPA[/Req: Avoid UnsanitizedDatabaseInput/]:::dashed
-    CM_Sec[/Req: Maintain SecureSessionManagement/]:::dashed
+    CM_SecureSess[Req: SecureSessionMgmt]:::cm
+    CM_SecureSess -.-> Vuln_Sess
 
-    CM_UUID -. resolves .-> Vuln_SeqID
-    CM_JPA -. resolves .-> Vuln_Concat
-    CM_Sec -. resolves .-> Vuln_Sess
+    %% ==========================================
+    %% THREAT D: NETWORK SNIFFING (Infrastructure)
+    %% ==========================================
+    AG_Network[/Achieve NoteContentSniffedOnNetwork/]:::goal
+    AG_L2 --> AG_Network
+
+    AR_Sniff[Anti-Req: RunPacketSniffer]:::antiReq
+    Vuln_HTTP{{Vuln: UnencryptedHTTP}}:::vuln
+    AG_Network --> AR_Sniff
+    AG_Network --> Vuln_HTTP
+
+    %% This link was fixed below (Changed Vuln_HTTPS to Vuln_HTTP)
+    CM_HTTPS[Req: EnforceHTTPS]:::cm
+    CM_HTTPS -.-> Vuln_HTTP
+
+    %% ==========================================
+    %% THREAT E: CLIENT-SIDE CACHING
+    %% ==========================================
+    AG_Client[/Achieve NoteReadFromBrowserCache/]:::goal
+    AG_L2 --> AG_Client
+
+    AR_Back[Anti-Req: HitBackButton]:::antiReq
+    Vuln_Cache{{Vuln: MissingCacheHeaders}}:::vuln
+    AG_Client --> AR_Back
+    AG_Client --> Vuln_Cache
+
+    CM_NoCache[Req: DisableCaching]:::cm
+    CM_NoCache -.-> Vuln_Cache  
 ```
 
 ## 3. Integrity Goals (Concurrency & Locking)
@@ -209,6 +313,9 @@ graph TD
 | **SR-1** | Use UUIDs for Note IDs | Counteracts `AccessNoteByGuessingID` | Pending               |
 | **SR-2** | Spring Data JPA | Counteracts `AccessNoteBySQLInjection` | Pending               |
 | **SR-3** | Spring Security Config | Counteracts `NoteContentKnownByUnauthorizedUser` | Pending               |
-| **SR-4** | Note Locking Mechanism | Counteracts `SimultaneousWriteConflict` | Pending               |
-| **SR-5** | Granular Write Permission Check | Counteracts `WriteByReadOnlyUser` | Pending |
-| **SR-6** | Database Replication | Counteracts `StorageNodeFailure` | Pending               |
+| **SR-4** | Enforce HTTPS (TLS)             | Counteracts `NoteContentSniffedOnNetwork` | Pending |
+| **SR-5** | Disable Browser Caching         | Counteracts `NoteReadFromBrowserCache`    | Pending |
+| **SR-6** | Generic Error Handling          | Counteracts `APIStructureKnown`           | Pending |
+| **SR-7** | Note Locking Mechanism | Counteracts `SimultaneousWriteConflict` | Pending               |
+| **SR-8** | Granular Write Permission Check | Counteracts `WriteByReadOnlyUser` | Pending |
+| **SR-9** | Database Replication | Counteracts `StorageNodeFailure` | Pending               |
