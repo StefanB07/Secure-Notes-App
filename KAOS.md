@@ -256,66 +256,112 @@ classDef dashed fill:#fff,stroke:#000,stroke-width:1px,stroke-dasharray: 5 5,col
     CM_Lock -. resolves .-> Vuln_Lock
 ```
 
-## 4. Availability Goals (Resilient Storage)
+## 4. Availability Goals (Resilient Storage & Uptime)
 
 ### 4.1 The System Goal
 **Goal:** `Achieve [NoteAccessWhenNeeded]`<br>
 **Formal Pattern:** `Achieve [ObjectInfoUsableWhenNeededAndAuthorized]`<br>
-**Definition:** Authorized users must be able to retrieve their notes even if a primary storage node fails.
+**Definition:** Authorized users must be able to retrieve their notes even if a storage node fails or the network is under stress.
 
 ### 4.2 The Anti-Model
 **Anti-Goal:** `Achieve [NoteServiceUnavailable]`<br>
-**Attacker:** DoS Attacker or Physical Infrastructure Failure.
+**Attacker:** Vandal / Extortionist (Active); Physical Infrastructure (Passive).<br>
+**Strategic Motive:** `Achieve [BusinessDisruption]` or `Achieve [RansomDemand]`.
 
 #### Threat Tree Refinement:
-1.  **Threat F:** `Achieve [StorageNodeFailure]`
-    * **Vulnerability:** The system relies on a single database instance (`db-master`). If this container stops, data is inaccessible.
+1.  **Threat G (Storage):** `Achieve [StorageNodeFailure]`
+    * **Scenario:** The primary database container crashes or the disk corrupts.
+    * **Vulnerability:** System relies on a single database instance (SPOF).
+2.  **Threat H (Compute):** `Achieve [AppServerFailure]`
+    * **Scenario:** The REST API process on Server A crashes due to a memory leak or bug.
+    * **Vulnerability:** Client requests are hardcoded to a single server IP; no automatic failover to Server B.
+3.  **Threat I (Network):** `Achieve [ServiceFlooded]` (DoS)
+    * **Scenario:** An attacker sends 10,000 requests/second to the API, exhausting connection pools.
+    * **Vulnerability:** Lack of **Rate Limiting** or Traffic Throttling in the API gateway.
+    * **Attacker Capability:** Use of botnets or scripts (e.g., Low Orbit Ion Cannon).
 
 ### 4.3 Derived Countermeasures
-* **Countermeasure 6 (Protects against Threat E):** `Maintain [DataReplication]`
-    * **Implementation:** Deploy two distinct backend server instances connected to a replicated SQL database cluster.
-    * *Architecture:*
-        1.  **Primary Node (Server A):** Handles Writes and Reads.
-        2.  **Replica Node (Server B):** Handles Reads (and failover Writes if promoted).
-        3.  **Failover Logic:** The application configuration must allow switching the Data Source URL if the primary connection times out.
+* **Countermeasure 7 (Protects against Threat G):** `Maintain [DataReplication]`
+    * **Implementation:** Deploy **Primary-Replica SQL Architecture**.
+    * *Logic:* Writes go to Primary. Reads can go to Replica. If Primary dies, Replica is promoted.
+
+* **Countermeasure 8 (Protects against Threat H):** `Achieve [LoadBalancing]`
+    * **Implementation:** Put a **Load Balancer** (e.g., Nginx or HAProxy) in front of the two application servers.
+    * *Logic:* The frontend connects to `lb.domain.com`. The LB forwards traffic to `server1` or `server2` based on health checks.
+
+* **Countermeasure 9 (Protects against Threat I):** `Avoid [ResourceExhaustion]`
+    * **Implementation:** Implement **Rate Limiting** (e.g., 100 req/min per IP).
+    * *Spring Boot:* Use `Bucket4j` or Spring Cloud Gateway RateLimiter.
 
 ```mermaid
 graph TD
-    %% --- STYLING (Black & White KAOS Style) ---
-    classDef default fill:#fff,stroke:#000,stroke-width:1px,color:#000;
-    classDef boldBorder fill:#fff,stroke:#000,stroke-width:3px,color:#000;
-    classDef dashed fill:#fff,stroke:#000,stroke-width:1px,stroke-dasharray: 5 5,color:#000;
+    %% --- STYLING ---
+    classDef root fill:#fff,stroke:#000,stroke-width:3px,color:#000;
+    classDef goal fill:#fff,stroke:#000,stroke-width:1px,color:#000;
+    classDef antiReq fill:#e0e0e0,stroke:#000,stroke-width:1px,color:#000;
+    classDef vuln fill:#f9f9f9,stroke:#000,stroke-width:1px,stroke-dasharray: 5 5,color:#000;
+    classDef cm fill:#fff,stroke:#000,stroke-width:1px,stroke-dasharray: 2 2,color:#000;
 
-    %% --- ROOT ANTI-GOAL ---
-    AG_Root[/Achieve NoteServiceUnavailable/]:::boldBorder
+    %% ==========================================
+    %% STRATEGIC ROOTS
+    %% ==========================================
+    AG_Root[/Achieve ServiceDisruption/]:::root
+    
+    %% ==========================================
+    %% INITIAL ANTI-GOAL
+    %% ==========================================
+    AG_Unavailable[/Achieve NoteServiceUnavailable/]:::goal
+    AG_Root --> AG_Unavailable
 
-    %% --- THREATS ---
-    AG_Fail[/Threat E: Achieve StorageNodeFailure/]
+    %% ==========================================
+    %% BRANCH 1: ACTIVE ATTACKS (Deep Refinement)
+    %% ==========================================
+    %% The attacker must choose a strategy to take down the service.
+    
+    AG_DoS[/Achieve ServiceFlooded/]:::goal
+    AG_Unavailable --> AG_DoS
 
-    %% Connect Root to Threat
-    AG_Root --> AG_Fail
+    AG_Exhaust[/Achieve ResourcesExhausted/]:::goal
+    AG_DoS --> AG_Exhaust
 
-    %% --- VULNERABILITIES ---
-    Vuln_SPOF{{Vulnerability: Single Database Instance}}
+    %% Deepening the specific resource attack
+    AG_Pool[/Achieve ConnectionPoolDepletion/]:::goal
+    AG_Exhaust --> AG_Pool
 
-    AG_Fail --> Vuln_SPOF
+    AR_Flood[Anti-Req: RunBotnetScript]:::antiReq
+    Vuln_NoLimit{{Vuln: UnboundedRequestProcessing}}:::vuln
+    
+    AG_Pool --> AR_Flood
+    AG_Pool --> Vuln_NoLimit
 
-    %% --- COUNTERMEASURES ---
-    CM_Repl[/Req: Maintain DataReplication/]:::dashed
+    CM_RateLimit[Req: Avoid ResourceExhaustion]:::cm
+    CM_RateLimit -.-> Vuln_NoLimit
 
-    CM_Repl -. resolves .-> Vuln_SPOF
+    %% ==========================================
+    %% BRANCH 2: PASSIVE FAILURES (Infrastructure)
+    %% ==========================================
+    %% These are naturally shallower but we group them logically.
+    
+    AG_Infra[/Achieve InfrastructureFailure/]:::goal
+    AG_Unavailable --> AG_Infra
+
+    %% --- THREAT G: STORAGE FAILURE ---
+    AG_Storage[/Achieve StorageNodeCrash/]:::goal
+    AG_Infra --> AG_Storage
+
+    Vuln_SPOF{{Vuln: SinglePointOfFailure_DB}}:::vuln
+    AG_Storage --> Vuln_SPOF
+
+    CM_Replica[Req: Maintain DataReplication]:::cm
+    CM_Replica -.-> Vuln_SPOF
+
+    %% --- THREAT H: COMPUTE FAILURE ---
+    AG_Compute[/Achieve AppServerCrash/]:::goal
+    AG_Infra --> AG_Compute
+
+    Vuln_StaticIP{{Vuln: NoFailoverMechanism}}:::vuln
+    AG_Compute --> Vuln_StaticIP
+
+    CM_LB[Req: Achieve LoadBalancing]:::cm
+    CM_LB -.-> Vuln_StaticIP
 ```
-
-## 5. Summary of Security Requirements (To-Do List)
-
-| ID | Requirement | KAOS Justification | Implementation Status |
-|----|------------|--------------------|-----------------------|
-| **SR-1** | Use UUIDs for Note IDs | Counteracts `AccessNoteByGuessingID` | Pending               |
-| **SR-2** | Spring Data JPA | Counteracts `AccessNoteBySQLInjection` | Pending               |
-| **SR-3** | Spring Security Config | Counteracts `NoteContentKnownByUnauthorizedUser` | Pending               |
-| **SR-4** | Enforce HTTPS (TLS)             | Counteracts `NoteContentSniffedOnNetwork` | Pending |
-| **SR-5** | Disable Browser Caching         | Counteracts `NoteReadFromBrowserCache`    | Pending |
-| **SR-6** | Generic Error Handling          | Counteracts `APIStructureKnown`           | Pending |
-| **SR-7** | Note Locking Mechanism | Counteracts `SimultaneousWriteConflict` | Pending               |
-| **SR-8** | Granular Write Permission Check | Counteracts `WriteByReadOnlyUser` | Pending |
-| **SR-9** | Database Replication | Counteracts `StorageNodeFailure` | Pending               |
