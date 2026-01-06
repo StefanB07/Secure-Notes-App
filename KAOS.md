@@ -231,29 +231,64 @@ graph TD
 
 ```mermaid
 graph TD
-%% --- STYLING (Black & White KAOS Style) ---
-classDef default fill:#fff,stroke:#000,stroke-width:1px,color:#000;
-classDef boldBorder fill:#fff,stroke:#000,stroke-width:3px,color:#000;
-classDef dashed fill:#fff,stroke:#000,stroke-width:1px,stroke-dasharray: 5 5,color:#000;
+%% --- STYLING ---
+    classDef root fill:#fff,stroke:#000,stroke-width:3px,color:#000;
+    classDef goal fill:#fff,stroke:#000,stroke-width:1px,color:#000;
+    classDef milestone fill:#fff,stroke:#000,stroke-width:2px,stroke-dasharray: 5 5,color:#000;
+    classDef antiReq fill:#e0e0e0,stroke:#000,stroke-width:1px,color:#000;
+    classDef vuln fill:#f9f9f9,stroke:#000,stroke-width:1px,stroke-dasharray: 5 5,color:#000;
+    classDef cm fill:#fff,stroke:#000,stroke-width:1px,stroke-dasharray: 2 2,color:#000;
 
-    %% --- ROOT ANTI-GOAL ---
-    AG_Root[/Achieve NoteOverwrittenByConcurrentEdit/]:::boldBorder
+%% ==========================================
+%% STRATEGIC ROOTS
+%% ==========================================
+    AG_Root[/Achieve IntegrityViolation/]:::root
 
-    %% --- THREATS ---
-    AG_Conflict[/Threat D: Achieve SimultaneousWriteConflict/]
+%% ==========================================
+%% BRANCH 1: CONCURRENCY (Race Conditions)
+%% ==========================================
+    AG_Overwrite[/Achieve NoteOverwrittenByConcurrentEdit/]:::goal
+    AG_Root --> AG_Overwrite
 
-    %% Connect Root to Threat
-    AG_Root --> AG_Conflict
+%% Refinement
+    AG_Simul[/Achieve SimultaneousWriteConflict/]:::goal
+    AG_Overwrite --> AG_Simul
 
-    %% --- VULNERABILITIES ---
-    Vuln_Lock{{Vulnerability: Lack of Concurrency Control}}
+%% Specific Scenario: The Race Condition
+    AG_Race[/Achieve SaveAfterOtherUser/]:::goal
+    AG_Simul --> AG_Race
 
-    AG_Conflict --> Vuln_Lock
+%% Leaf Nodes (Vulnerability + Attacker Action)
+    AR_Save[Anti-Req: TriggerSaveRaceCondition]:::antiReq
+    Vuln_Lock{{Vuln: LackOfConcurrencyControl}}:::vuln
 
-    %% --- COUNTERMEASURES ---
-    CM_Lock[/Req: Achieve ApplicationLevelLocking/]:::dashed
+    AG_Race --> AR_Save
+    AG_Race --> Vuln_Lock
 
-    CM_Lock -. resolves .-> Vuln_Lock
+%% Countermeasure
+    CM_Lock[Req: ApplicationLevelLocking]:::cm
+    CM_Lock -.-> Vuln_Lock
+
+%% ==========================================
+%% BRANCH 2: AUTHORIZATION BYPASS (Privilege Escalation)
+%% ==========================================
+    AG_Authz[/Achieve WriteByReadOnlyUser/]:::goal
+    AG_Root --> AG_Authz
+
+%% Refinement: Bypassing the UI
+    AG_BypassUI[/Achieve UIRestrictionsBypassed/]:::goal
+    AG_Authz --> AG_BypassUI
+
+%% Leaf Nodes
+    AR_Craft[Anti-Req: CraftRawUpdateRequest]:::antiReq
+    Vuln_Perm{{Vuln: MissingGranularPermissionCheck}}:::vuln
+
+    AG_BypassUI --> AR_Craft
+    AG_BypassUI --> Vuln_Perm
+
+%% Countermeasure
+    CM_RBAC[Req: GranularPermissionChecks]:::cm
+    CM_RBAC -.-> Vuln_Perm
 ```
 
 ## 4. Availability Goals (Resilient Storage & Uptime)
