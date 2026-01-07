@@ -10,12 +10,10 @@ public class HomeController {
 
     @GetMapping("/")
     public String home(Model model, Principal principal) {
-        // Dacă ești logat, 'principal' nu e null
+        // If user is authenticated, expose username to the view
         if (principal != null) {
-            // Trimitem numele utilizatorului către HTML ca să-l salutăm
             model.addAttribute("username", principal.getName());
         }
-        // Returnează numele fișierului HTML (fără extensia .html)
         return "home";
     }
 }

@@ -16,19 +16,19 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/register", "/css/**").permitAll() // Lăsăm liber la înregistrare și stiluri
-                        .anyRequest().authenticated() // Orice altceva cere login
+                        .requestMatchers("/register", "/css/**", "/login").permitAll() // Permit access to static resources, login
+                        .anyRequest().authenticated() // Any other request requires authentication
                 )
                 .formLogin(form -> form
-                        .defaultSuccessUrl("/", true) // După login, du-ne pe Home
+                        .defaultSuccessUrl("/", true) // Redirect to Home after login
                         .permitAll()
                 )
                 .logout(logout -> logout.permitAll());
 
+        // CSRF protection is enabled by default in Spring Security 6+.
         return http.build();
     }
 
-    // Algoritmul de criptare (Standardul industriei)
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
