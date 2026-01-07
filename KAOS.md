@@ -419,40 +419,46 @@ graph TD
 classDef default fill:#ffffff,stroke:#000000,stroke-width:1px,color:#000000;
 classDef bold fill:#ffffff,stroke:#000000,stroke-width:3px,color:#000000;
 classDef dashed fill:#ffffff,stroke:#000000,stroke-width:1px,stroke-dasharray:5 5,color:#000000;
+classDef andNode fill:#000000,stroke:#000000,stroke-width:1px,color:#000000;
 
 %% ================== ROOT ANTI-GOAL ==================
 AG[/Achieve NoteContentModifiedWithoutValidLockOrAuthorization/]:::bold
 
-%% ================== MAIN THREATS ==================
+%% ================== TOP-LEVEL ALTERNATIVES (OR) ==================
+OR0(( )):::andNode
+AG --> OR0
+
 M[/Threat M: SimultaneousWriteConflict/]
 N[/Threat N: WriteByReadOnlyUser/]
 P[/Threat P: WriteAfterLockExpiration/]
 R[/Threat R: InconsistentWriteAcrossReplicas/]
 
-AG --> M
-AG --> N
-AG --> P
-AG --> R
+OR0 --> M
+OR0 --> N
+OR0 --> P
+OR0 --> R
 
-%% ================== THREAT M SUB-CASES ==================
+%% ================== THREAT M (OR sub-cases) ==================
+OR_M(( )):::andNode
+M --> OR_M
+
 M1[/M1: UpdateWithoutHoldingLock/]
 M2[/M2: LockBypassViaDirectEndpoint/]
 M3[/M3: StaleLockNotReleased/]
 M4[/M4: LostUpdateDueToMissingConcurrencyCheck/]
 M5[/M5: UnauthorizedUnlockOrLockStealing/]
 
-M --> M1
-M --> M2
-M --> M3
-M --> M4
-M --> M5
+OR_M --> M1
+OR_M --> M2
+OR_M --> M3
+OR_M --> M4
+OR_M --> M5
 
-%% ================== THREAT M VULNERABILITIES ==================
-VM1{{No lock ownership check on update}}
-VM2{{Update endpoint does not enforce lock acquisition or ownership}}
-VM3{{Missing lock TTL and recovery}}
-VM4{{Missing current state or version validation}}
-VM5{{Unlock or lock ownership not restricted}}
+VM1{{Vuln: No lock ownership check on update}}
+VM2{{Vuln: Update endpoint does not enforce lock acquisition or ownership}}
+VM3{{Vuln: Missing lock TTL or recovery}}
+VM4{{Vuln: Missing current state or version validation}}
+VM5{{Vuln: Unlock or lock ownership not restricted}}
 
 M1 --> VM1
 M2 --> VM2
@@ -460,75 +466,81 @@ M3 --> VM3
 M4 --> VM4
 M5 --> VM5
 
-%% ================== THREAT N SUB-CASES ==================
+%% ================== THREAT N (OR sub-cases) ==================
+OR_N(( )):::andNode
+N --> OR_N
+
 N1[/N1: RawHTTPRequestByReadOnlyUser/]
 N2[/N2: UIOnlyAuthorization/]
 N3[/N3: PermissionChangedButNotRechecked/]
 
-N --> N1
-N --> N2
-N --> N3
+OR_N --> N1
+OR_N --> N2
+OR_N --> N3
 
-%% ================== THREAT N VULNERABILITIES ==================
-VN1{{Missing server side WRITE authorization}}
-VN2{{Authorization enforced only in UI}}
-VN3{{Permissions not rechecked per request}}
+VN1{{Vuln: Missing server-side WRITE authorization}}
+VN2{{Vuln: Authorization enforced only in UI}}
+VN3{{Vuln: Permissions not rechecked per request}}
 
 N1 --> VN1
 N2 --> VN2
 N3 --> VN3
 
-%% ================== THREAT P SUB-CASES ==================
+%% ================== THREAT P (OR sub-cases) ==================
+OR_P(( )):::andNode
+P --> OR_P
+
 P1[/P1: WriteWithExpiredLock/]
 P2[/P2: ReplayOfOldUpdateRequest/]
 
-P --> P1
-P --> P2
+OR_P --> P1
+OR_P --> P2
 
-%% ================== THREAT P VULNERABILITIES ==================
-VP1{{Lock validity TTL not checked at write time}}
-VP2{{No freshness or current state validation on update}}
+VP1{{Vuln: Lock validity TTL not checked at write time}}
+VP2{{Vuln: No freshness or current state validation on update}}
 
 P1 --> VP1
 P2 --> VP2
 
-%% ================== THREAT R SUB-CASES ==================
+%% ================== THREAT R (OR sub-cases) ==================
+OR_R(( )):::andNode
+R --> OR_R
+
 R1[/R1: NonGlobalLockState/]
 R2[/R2: DivergentVersionAcceptance/]
 
-R --> R1
-R --> R2
+OR_R --> R1
+OR_R --> R2
 
-%% ================== THREAT R VULNERABILITIES ==================
-VR1{{Lock state not globally consistent due to replication delay}}
-VR2{{Version identifiers not globally monotonic or unique for writes}}
+VR1{{Vuln: Lock state not globally consistent}}
+VR2{{Vuln: Version identifiers not globally monotonic}}
 
 R1 --> VR1
 R2 --> VR2
 
 %% ================== COUNTERMEASURES ==================
-CM7[/CM7: ApplicationLevelLocking - atomic checks and update/]:::dashed
-CM8[/CM8: GranularPermissionChecks - RBAC/]:::dashed
-CM9[/CM9: ConcurrencyTokenCheck - version ETag/]:::dashed
-CM10[/CM10: SingleWriterForReplicatedSystem/]:::dashed
-CM11[/CM11: LockRenewal/]:::dashed
+CM7[/CM7: ApplicationLevelLocking (atomic checks + update)/]:::dashed
+CM8[/CM8: GranularPermissionChecks (RBAC)/]:::dashed
+CM9[/CM9: ConcurrencyTokenCheck (Version or ETag)/]:::dashed
+CM10[/CM10: SingleWriterForReplicatedSystem/leader-only LOCK+WRITE/]:::dashed
+CM11[/CM11: LockRenewal (LOCK_RENEW)/]:::dashed
 
-%% ================== RESOLUTION LINKS ==================
-CM7 -. resolves .-> VM1
-CM7 -. resolves .-> VM2
-CM7 -. resolves .-> VM3
-CM7 -. resolves .-> VM5
-CM7 -. resolves .-> VP1
+%% ================== LINKS (as stated in the text) ==================
+CM7 -. protects .-> VM1
+CM7 -. protects .-> VM2
+CM7 -. protects .-> VM3
+CM7 -. protects .-> VM5
+CM7 -. protects .-> VP1
 
-CM8 -. resolves .-> VN1
-CM8 -. resolves .-> VN2
-CM8 -. resolves .-> VN3
+CM8 -. protects .-> VN1
+CM8 -. protects .-> VN2
+CM8 -. protects .-> VN3
 
-CM9 -. resolves .-> VM4
-CM9 -. resolves .-> VP2
+CM9 -. protects .-> VM4
+CM9 -. protects .-> VP2
 
-CM10 -. resolves .-> VR1
-CM10 -. resolves .-> VR2
+CM10 -. protects .-> VR1
+CM10 -. protects .-> VR2
 
 CM11 -. supports .-> VP1
 
