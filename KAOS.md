@@ -204,17 +204,17 @@ graph TD
 **Attacker:** A second legitimate user (or race condition exploit).
 
 #### Threat Tree Refinement:
-1.  **Threat D:** `Achieve [SimultaneousWriteConflict]`
+1.  **Threat G:** `Achieve [SimultaneousWriteConflict]`
     * **Scenario:** User A and User B open the same note. User A saves. User B saves 1 second later, overwriting User A's work.
     * **Vulnerability:** Lack of concurrency control or locking mechanism.
 
-2.  **Threat E:** `Achieve [WriteByReadOnlyUser]`
+2.  **Threat H:** `Achieve [WriteByReadOnlyUser]`
     * **Scenario:** User A shares a note with User B granting only "Read" permissions. User B maliciously sends a `POST /update` request to modify the content.
     * **Vulnerability:** The application checks if the user has access to the note (Authentication) but fails to verify the specific *permission level* (Authorization) for the write operation.
     * **Attacker Capability:** The attacker can craft raw HTTP requests bypassing the UI restrictions.
 
 ### 3.3 Derived Countermeasures
-* **Countermeasure 4 (Protects against Threat D):** `Achieve [ApplicationLevelLocking]`
+* **Countermeasure 7 (Protects against Threat G):** `Achieve [ApplicationLevelLocking]`
     * **Implementation:** Implement a "Locked Mode" where a user must acquire a lock before editing.
     * *Logic:*
         1. User requests "Edit Mode" -> Server checks `isLocked`.
@@ -222,7 +222,7 @@ graph TD
         3. If `true` (and different user), deny access.
         4. Unlock on save or timeout.
 
-* **Countermeasure 5 (Protects against Threat F):** `Maintai [GranularPermissionChecks]`
+* **Countermeasure 8 (Protects against Threat H):** `Maintai [GranularPermissionChecks]`
     * **Implementation:** Enforce Role-Based Access Control (RBAC) at the API endpoint level.
     * *Logic:*
         1.  `POST /api/notes/{id}` received.
@@ -304,27 +304,27 @@ graph TD
 **Strategic Motive:** `Achieve [BusinessDisruption]` or `Achieve [RansomDemand]`.
 
 #### Threat Tree Refinement:
-1.  **Threat G (Storage):** `Achieve [StorageNodeFailure]`
+1.  **Threat I (Storage):** `Achieve [StorageNodeFailure]`
     * **Scenario:** The primary database container crashes or the disk corrupts.
     * **Vulnerability:** System relies on a single database instance (SPOF).
-2.  **Threat H (Compute):** `Achieve [AppServerFailure]`
+2.  **Threat J (Compute):** `Achieve [AppServerFailure]`
     * **Scenario:** The REST API process on Server A crashes due to a memory leak or bug.
     * **Vulnerability:** Client requests are hardcoded to a single server IP; no automatic failover to Server B.
-3.  **Threat I (Network):** `Achieve [ServiceFlooded]` (DoS)
+3.  **Threat K (Network):** `Achieve [ServiceFlooded]` (DoS)
     * **Scenario:** An attacker sends 10,000 requests/second to the API, exhausting connection pools.
     * **Vulnerability:** Lack of **Rate Limiting** or Traffic Throttling in the API gateway.
     * **Attacker Capability:** Use of botnets or scripts (e.g., Low Orbit Ion Cannon).
 
 ### 4.3 Derived Countermeasures
-* **Countermeasure 7 (Protects against Threat G):** `Maintain [DataReplication]`
+* **Countermeasure 9 (Protects against Threat I):** `Maintain [DataReplication]`
     * **Implementation:** Deploy **Primary-Replica SQL Architecture**.
     * *Logic:* Writes go to Primary. Reads can go to Replica. If Primary dies, Replica is promoted.
 
-* **Countermeasure 8 (Protects against Threat H):** `Achieve [LoadBalancing]`
+* **Countermeasure 10 (Protects against Threat J):** `Achieve [LoadBalancing]`
     * **Implementation:** Put a **Load Balancer** (e.g., Nginx or HAProxy) in front of the two application servers.
     * *Logic:* The frontend connects to `lb.domain.com`. The LB forwards traffic to `server1` or `server2` based on health checks.
 
-* **Countermeasure 9 (Protects against Threat I):** `Avoid [ResourceExhaustion]`
+* **Countermeasure 11 (Protects against Threat K):** `Avoid [ResourceExhaustion]`
     * **Implementation:** Implement **Rate Limiting** (e.g., 100 req/min per IP).
     * *Spring Boot:* Use `Bucket4j` or Spring Cloud Gateway RateLimiter.
 

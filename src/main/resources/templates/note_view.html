@@ -42,24 +42,30 @@
                 <a class="btn btn-secondary" th:href="@{/notes}">Back to list</a>
 
                 <div class="btn-group">
-                    <!-- Edit button - only if user can write -->
                     <a th:if="${canWrite}" class="btn btn-primary" th:href="@{/notes/{id}/edit(id=${note.id})}">
                         Edit
                     </a>
 
-                    <!-- Share button - only for owner -->
                     <a th:if="${isOwner}" class="btn btn-info" th:href="@{/notes/{id}/share(id=${note.id})}">
                         Share
                     </a>
 
-                    <!-- Delete button - only for owner -->
-                    <form th:if="${isOwner}" th:action="@{/notes/{id}/delete(id=${note.id})}" method="post" style="display:inline">
-                        <button type="submit" class="btn btn-danger" onclick="return confirm('Are you sure you want to delete this note?')">
-                            Delete
-                        </button>
-                    </form>
+                    <button th:if="${isOwner}"
+                            type="submit"
+                            form="deleteNoteForm"
+                            class="btn btn-danger"
+                            onclick="return confirm('Are you sure you want to delete this note?')">
+                        Delete
+                    </button>
                 </div>
             </div>
+
+            <form th:if="${isOwner}"
+                  id="deleteNoteForm"
+                  th:action="@{/notes/{id}/delete(id=${note.id})}"
+                  method="post"
+                  style="display: none;">
+            </form>
         </div>
     </div>
 </div>
