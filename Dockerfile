@@ -17,9 +17,6 @@ COPY src ./src
 # Build the application inside the container
 RUN ./mvnw clean package -DskipTests
 
-# FIX: Use 'RUN mv' instead of 'COPY'.
-# The jar was created inside the container in the 'target' folder.
-# We move it to 'app.jar' so the ENTRYPOINT can find it.
 RUN mv target/secure-notes-0.0.1-SNAPSHOT.jar app.jar
 
 # Expose the port the app runs on

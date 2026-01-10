@@ -7,6 +7,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.access.AccessDeniedException;
 
 import java.security.Principal;
 import java.time.LocalDateTime;
@@ -76,14 +77,13 @@ public class NoteController {
         Optional<Note> noteOpt = noteRepository.findById(id);
 
         if (noteOpt.isEmpty()) {
-            return "error/404";
+            throw new AccessDeniedException("Note not found");
         }
 
         Note note = noteOpt.get();
 
-        // Security check: can user read this note?
         if (!note.canRead(username)) {
-            return "error/404"; // Don't leak that note exists
+            throw new AccessDeniedException("You do not have permission to view this note.");
         }
 
         model.addAttribute("note", note);
