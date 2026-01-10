@@ -7,6 +7,7 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.header.writers.CacheControlHeadersWriter;
 
 @Configuration
 @EnableWebSecurity
@@ -15,17 +16,25 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
+                // 1. DELETE or COMMENT OUT this section for local testing
+                // .requiresChannel(channel -> channel
+                //    .anyRequest().requiresSecure()
+                // )
+
+                .headers(headers -> headers
+                        .cacheControl(cache -> cache.disable())
+                        .addHeaderWriter(new CacheControlHeadersWriter())
+                )
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/register", "/css/**", "/login").permitAll() // Permit access to static resources, login
-                        .anyRequest().authenticated() // Any other request requires authentication
+                        .requestMatchers("/register", "/css/**", "/login").permitAll()
+                        .anyRequest().authenticated()
                 )
                 .formLogin(form -> form
-                        .defaultSuccessUrl("/", true) // Redirect to Home after login
+                        .defaultSuccessUrl("/", true)
                         .permitAll()
                 )
                 .logout(logout -> logout.permitAll());
 
-        // CSRF protection is enabled by default in Spring Security 6+.
         return http.build();
     }
 

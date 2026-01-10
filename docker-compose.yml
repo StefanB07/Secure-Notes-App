@@ -1,16 +1,56 @@
 version: '3.8'
 services:
+  # SR-10: Load Balancer (Countermeasure 10)
+  load-balancer:
+    image: nginx:latest
+    ports:
+      - "80:80"
+      - "443:443" # For SR-4 (HTTPS)
+    depends_on:
+      - app-1
+      - app-2
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+
+  # Application Node 1
+  app-1:
+    build: .
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db-master:5432/notes_app
+    depends_on:
+      - db-master
+
+  # Application Node 2 (Redundancy)
+  app-2:
+    build: .
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db-master:5432/notes_app
+    depends_on:
+      - db-master
+
+  # Primary DB
   db-master:
     image: postgres:15
-    container_name: db_master
+    ports:
+      - "5432:5432"
     environment:
       POSTGRES_DB: notes_app
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: password_securizata
-    ports:
-      - "5432:5432"
     volumes:
       - master_data:/var/lib/postgresql/data
+
+  db-replica:
+    image: postgres:15
+    depends_on:
+      - db-master
+    command: |
+      bash -c "
+      until pg_isready -h db-master -p 5432; do sleep 1; done;
+      pg_basebackup -h db-master -D /var/lib/postgresql/data -U admin -v -P -X stream
+      touch /var/lib/postgresql/data/standby.signal
+      postgres
+      "
 
 volumes:
   master_data:
