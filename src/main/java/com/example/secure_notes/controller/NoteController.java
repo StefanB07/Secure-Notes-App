@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.security.access.AccessDeniedException;
 
 import java.security.Principal;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -22,6 +23,12 @@ public class NoteController {
 
     private final NoteRepository noteRepository;
     private final UserRepository userRepository;
+
+    /**
+     * Lock lease duration. If a note stays locked longer than this without activity,
+     * the lock is considered expired and can be taken by another authorized user.
+     */
+    private static final Duration LOCK_TIMEOUT = Duration.ofMinutes(3);
 
     public NoteController(NoteRepository noteRepository, UserRepository userRepository) {
         this.noteRepository = noteRepository;
@@ -109,7 +116,18 @@ public class NoteController {
             return "error/404";
         }
 
-        // Check lock
+        // Expire stale locks (prevents indefinite locking if a user closes tab / navigates away)
+        if (note.isLocked() && note.getLockedAt() != null) {
+            Duration age = Duration.between(note.getLockedAt(), LocalDateTime.now());
+            if (age.compareTo(LOCK_TIMEOUT) > 0) {
+                note.setLocked(false);
+                note.setLockedBy(null);
+                note.setLockedAt(null);
+                noteRepository.save(note);
+            }
+        }
+
+        // Check lock (after expiry logic)
         if (note.isLocked() && !username.equals(note.getLockedBy())) {
             model.addAttribute("error", "Notița este blocată de " + note.getLockedBy() + ". Încercați mai târziu.");
             model.addAttribute("note", note);
@@ -118,7 +136,7 @@ public class NoteController {
             return "note_view";
         }
 
-        // Acquire lock
+        // Acquire/refresh lock
         note.setLocked(true);
         note.setLockedBy(username);
         note.setLockedAt(LocalDateTime.now());
