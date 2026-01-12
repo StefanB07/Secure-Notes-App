@@ -13,16 +13,20 @@ public class DataLoader {
     @Bean
     CommandLineRunner initDatabase(UserRepository repo, PasswordEncoder encoder) {
         return args -> {
-            // Verificăm dacă baza e goală ca să nu duplicăm userii la fiecare restart
-            if (repo.count() == 0) {
-                // User 1: Alice (parola: password)
-                repo.save(new User("alice", encoder.encode("password"), "USER"));
+            // Helper method to add user only if not exists
+            createUserIfNotExists(repo, encoder, "alice", "password", "USER");
+            createUserIfNotExists(repo, encoder, "bob", "password", "USER");
 
-                // User 2: Bob (parola: password)
-                repo.save(new User("bob", encoder.encode("password"), "USER"));
-
-                System.out.println("--- USERS CREATED: alice/password AND bob/password ---");
-            }
+            // new users can be added here according to this template
+            // createUserIfNotExists(repo, encoder, "charlie", "pass123", "USER");
         };
+    }
+
+    private void createUserIfNotExists(UserRepository repo, PasswordEncoder encoder,
+                                        String username, String password, String role) {
+        if (repo.findByUsername(username).isEmpty()) {
+            repo.save(new User(username, encoder.encode(password), role));
+            System.out.println("--- USER CREATED: " + username + " ---");
+        }
     }
 }

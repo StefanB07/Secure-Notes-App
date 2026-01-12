@@ -1,21 +1,28 @@
 package com.example.secure_notes.controller;
 
+import com.example.secure_notes.service.DbFailoverStatusService;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
+
 import java.security.Principal;
 
 @Controller
 public class HomeController {
 
+    private final DbFailoverStatusService dbFailoverStatusService;
+
+    public HomeController(DbFailoverStatusService dbFailoverStatusService) {
+        this.dbFailoverStatusService = dbFailoverStatusService;
+    }
+
     @GetMapping("/")
     public String home(Model model, Principal principal) {
-        // Dacă ești logat, 'principal' nu e null
+        // If user is authenticated, expose username to the view
         if (principal != null) {
-            // Trimitem numele utilizatorului către HTML ca să-l salutăm
             model.addAttribute("username", principal.getName());
         }
-        // Returnează numele fișierului HTML (fără extensia .html)
+        model.addAttribute("failoverMode", dbFailoverStatusService.isFailoverMode());
         return "home";
     }
 }

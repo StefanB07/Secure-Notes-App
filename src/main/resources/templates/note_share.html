@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8" />
+    <title>Share note</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+<div class="container mt-5">
+    <div class="card shadow">
+        <div class="card-header bg-info text-white">
+            <h4>Share: <span th:text="${note.title}"></span></h4>
+        </div>
+        <div class="card-body">
+            <!-- Success/Error messages -->
+            <div th:if="${param.success}" class="alert alert-success">
+                Permission added successfully.
+            </div>
+            <div th:if="${param.error}" class="alert alert-danger">
+                <span th:if="${param.error == 'usernotfound'}">User not found.</span>
+                <span th:if="${param.error != 'usernotfound'}">An error occurred.</span>
+            </div>
+
+            <!-- Current shares -->
+            <h5>Current permissions</h5>
+
+            <div class="mb-4">
+                <h6>Read-only:</h6>
+                <div th:if="${note.sharedReadOnly == null or note.sharedReadOnly.isEmpty()}" class="text-muted">
+                    Nobody
+                </div>
+                <ul th:if="${note.sharedReadOnly != null and !note.sharedReadOnly.isEmpty()}" class="list-inline">
+                    <li th:each="user : ${note.sharedReadOnly.split(',')}" class="list-inline-item">
+                        <span class="badge bg-secondary">
+                            <span th:text="${user.trim()}"></span>
+                        </span>
+                        <form th:action="@{/notes/{id}/unshare(id=${note.id})}" method="post" class="d-inline">
+                            <input type="hidden" name="username" th:value="${user.trim()}" />
+                            <button type="submit" class="btn btn-sm btn-outline-danger">×</button>
+                        </form>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="mb-4">
+                <h6>Read and write:</h6>
+                <div th:if="${note.sharedReadWrite == null or note.sharedReadWrite.isEmpty()}" class="text-muted">
+                    Nobody
+                </div>
+                <ul th:if="${note.sharedReadWrite != null and !note.sharedReadWrite.isEmpty()}" class="list-inline">
+                    <li th:each="user : ${note.sharedReadWrite.split(',')}" class="list-inline-item">
+                        <span class="badge bg-primary">
+                            <span th:text="${user.trim()}"></span>
+                        </span>
+                        <form th:action="@{/notes/{id}/unshare(id=${note.id})}" method="post" class="d-inline">
+                            <input type="hidden" name="username" th:value="${user.trim()}" />
+                            <button type="submit" class="btn btn-sm btn-outline-danger">×</button>
+                        </form>
+                    </li>
+                </ul>
+            </div>
+
+            <hr>
+
+            <!-- Add new share -->
+            <h5>Add new permission</h5>
+            <form th:action="@{/notes/{id}/share(id=${note.id})}" method="post" class="row g-3">
+                <div class="col-md-5">
+                    <label for="username" class="form-label">User</label>
+                    <select id="username" name="username" class="form-select" required>
+                        <option value="">Select user...</option>
+                        <option th:each="user : ${allUsers}" th:value="${user.username}" th:text="${user.username}"></option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label for="permission" class="form-label">Permission</label>
+                    <select id="permission" name="permission" class="form-select" required>
+                        <option value="readonly">Read-only</option>
+                        <option value="readwrite">Read and write</option>
+                    </select>
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                    <button type="submit" class="btn btn-success w-100">Add</button>
+                </div>
+            </form>
+        </div>
+        <div class="card-footer">
+            <a class="btn btn-secondary" th:href="@{/notes/{id}(id=${note.id})}">Back to note</a>
+        </div>
+    </div>
+</div>
+</body>
+</html>
