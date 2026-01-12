@@ -435,9 +435,170 @@ graph TD
     CM_LB -.-> Vuln_StaticIP
 ```
 
-## 5. Implementation Summary
+## 5. Authentication Goals (Secure Login & Registration)
 
-### 5.1 Threat-to-Implementation Mapping
+### 5.1 The System Goal
+**Goal:** `Maintain [SecureUserAuthentication]`<br>
+**Formal Pattern:** `Maintain [AuthorizedAccessOnlyByValidCredentials]`<br>
+**Definition:** Only users with valid credentials shall be granted access to the system. User credentials must be protected during storage, transmission, and input.
+
+### 5.2 The Anti-Model
+**Top-Level Anti-Goal:** `Achieve [UnauthorizedSystemAccess]`<br>
+**Attacker:** External Hacker / Malicious Bot.<br>
+**Strategic Motive:** `Achieve [AccountTakeover]` or `Achieve [SystemCompromise]`.
+
+#### Threat Tree Refinement:
+
+1.  **Threat L:** `Achieve [LoginBypassViaSQLInjection]`
+    * **Anti-Goal:** `Achieve [LoginBypassViaSQLInjection]`.
+    * **Scenario:** Attacker enters `' OR '1'='1` as username to bypass authentication.
+    * **Vulnerability:** Login query concatenates user input directly into SQL.
+    * **Attacker Capability:** Knowledge of SQL injection patterns.
+
+2.  **Threat M:** `Achieve [CredentialBruteForce]`
+    * **Anti-Goal:** `Achieve [CredentialBruteForce]`.
+    * **Scenario:** Attacker uses automated tools to try thousands of username/password combinations.
+    * **Vulnerability:** No rate limiting on login attempts.
+    * **Attacker Capability:** Brute-force scripts, password lists.
+
+3.  **Threat N:** `Achieve [MaliciousAccountCreation]`
+    * **Anti-Goal:** `Achieve [MaliciousAccountCreation]`.
+    * **Scenario:** Attacker creates accounts with malicious usernames (e.g., `<script>alert('xss')</script>`, `admin'--`, `../../../etc/passwd`).
+    * **Vulnerability:** No input validation on registration form.
+    * **Attacker Capability:** XSS payloads, SQL injection, path traversal strings.
+
+4.  **Threat O:** `Achieve [PasswordExfiltration]`
+    * **Anti-Goal:** `Achieve [PasswordExfiltration]`.
+    * **Scenario:** Attacker gains database access and reads plain-text passwords.
+    * **Vulnerability:** Passwords stored in plain text.
+    * **Attacker Capability:** Database dump, SQL injection to exfiltrate data.
+
+5.  **Threat P:** `Achieve [ReservedUsernameImpersonation]`
+    * **Anti-Goal:** `Achieve [ReservedUsernameImpersonation]`.
+    * **Scenario:** Attacker registers as `admin`, `root`, or `system` to appear authoritative.
+    * **Vulnerability:** No blacklist of reserved usernames.
+    * **Attacker Capability:** Social engineering, phishing other users.
+
+### 5.3 Derived Countermeasures
+
+* **Countermeasure 12 (Protects against Threat L):** `Avoid [SQLInjectionInLogin]`
+    * **Requirement Goal:** `Avoid [SQLInjectionInLogin]`.
+    * **Implementation:** Use parameterized queries via Spring Data JPA.
+    * *Spring Boot:* `UserRepository.findByUsername()` uses prepared statements automatically.
+
+* **Countermeasure 13 (Protects against Threat M):** `Avoid [UnlimitedLoginAttempts]`
+    * **Requirement Goal:** `Avoid [UnlimitedLoginAttempts]`.
+    * **Implementation:** Apply rate limiting to login endpoint.
+    * *Spring Boot:* `RateLimitFilter.java` limits requests per IP (200 req/min).
+
+* **Countermeasure 14 (Protects against Threat N):** `Maintain [StrictInputValidation]`
+    * **Requirement Goal:** `Maintain [StrictInputValidation]`.
+    * **Implementation:** Validate username with strict regex pattern.
+    * *Code:* `USERNAME_PATTERN = "^[a-zA-Z0-9_]{3,20}$"` in `RegistrationController.java`.
+    * *Effect:* Blocks SQL injection, XSS, path traversal, and special characters.
+
+* **Countermeasure 15 (Protects against Threat O):** `Maintain [SecurePasswordStorage]`
+    * **Requirement Goal:** `Maintain [SecurePasswordStorage]`.
+    * **Implementation:** Hash all passwords with BCrypt before storage.
+    * *Spring Boot:* `PasswordEncoder.encode()` in `RegistrationController.java`.
+
+* **Countermeasure 16 (Protects against Threat P):** `Avoid [ReservedUsernameRegistration]`
+    * **Requirement Goal:** `Avoid [ReservedUsernameRegistration]`.
+    * **Implementation:** Maintain blacklist of reserved usernames.
+    * *Code:* `RESERVED_USERNAMES` set includes `admin`, `root`, `system`, `login`, `api`, etc.
+
+```mermaid
+graph TD
+    %% --- STYLING ---
+    classDef root fill:#fff,stroke:#000,stroke-width:3px,color:#000;
+    classDef antiGoal fill:#ffe0e0,stroke:#000,stroke-width:1px,color:#000;
+    classDef antiReq fill:#e0e0e0,stroke:#000,stroke-width:1px,color:#000;
+    classDef vuln fill:#f9f9f9,stroke:#000,stroke-width:1px,stroke-dasharray: 5 5,color:#000;
+    classDef cm fill:#fff,stroke:#000,stroke-width:1px,stroke-dasharray: 2 2,color:#000;
+
+    %% ==========================================
+    %% STRATEGIC ROOT
+    %% ==========================================
+    AG_Root[/Anti-Goal: Achieve UnauthorizedSystemAccess/]:::root
+
+    %% ==========================================
+    %% BRANCH 1: LOGIN ATTACKS
+    %% ==========================================
+    AG_Login[/Anti-Goal: Achieve LoginBypassed/]:::antiGoal
+    AG_Root --> AG_Login
+
+    %% Threat L: SQL Injection
+    AG_SQLLogin[/Anti-Goal: Achieve LoginBypassViaSQLInjection/]:::antiGoal
+    AG_Login --> AG_SQLLogin
+
+    AR_InjectLogin[Anti-Req: InjectSQLInLoginForm]:::antiReq
+    Vuln_LoginSQL{{Vuln: UnsanitizedLoginQuery}}:::vuln
+    AG_SQLLogin --> AR_InjectLogin
+    AG_SQLLogin --> Vuln_LoginSQL
+
+    CM_ParamLogin[Req: Avoid SQLInjectionInLogin]:::cm
+    CM_ParamLogin -.-> Vuln_LoginSQL
+
+    %% Threat M: Brute Force
+    AG_Brute[/Anti-Goal: Achieve CredentialBruteForce/]:::antiGoal
+    AG_Login --> AG_Brute
+
+    AR_BruteScript[Anti-Req: RunBruteForceScript]:::antiReq
+    Vuln_NoLimit{{Vuln: UnlimitedLoginAttempts}}:::vuln
+    AG_Brute --> AR_BruteScript
+    AG_Brute --> Vuln_NoLimit
+
+    CM_RateLogin[Req: Avoid UnlimitedLoginAttempts]:::cm
+    CM_RateLogin -.-> Vuln_NoLimit
+
+    %% ==========================================
+    %% BRANCH 2: REGISTRATION ATTACKS
+    %% ==========================================
+    AG_Register[/Anti-Goal: Achieve MaliciousAccountCreation/]:::antiGoal
+    AG_Root --> AG_Register
+
+    %% Threat N: Malicious Input
+    AG_MalInput[/Anti-Goal: Achieve InjectionViaRegistration/]:::antiGoal
+    AG_Register --> AG_MalInput
+
+    AR_XSSUser[Anti-Req: RegisterWithXSSPayload]:::antiReq
+    Vuln_NoValidation{{Vuln: NoInputValidation}}:::vuln
+    AG_MalInput --> AR_XSSUser
+    AG_MalInput --> Vuln_NoValidation
+
+    CM_Regex[Req: Maintain StrictInputValidation]:::cm
+    CM_Regex -.-> Vuln_NoValidation
+
+    %% Threat P: Reserved Names
+    AG_Reserved[/Anti-Goal: Achieve ReservedUsernameImpersonation/]:::antiGoal
+    AG_Register --> AG_Reserved
+
+    AR_RegAdmin[Anti-Req: RegisterAsAdmin]:::antiReq
+    Vuln_NoBlacklist{{Vuln: NoReservedNameBlacklist}}:::vuln
+    AG_Reserved --> AR_RegAdmin
+    AG_Reserved --> Vuln_NoBlacklist
+
+    CM_Blacklist[Req: Avoid ReservedUsernameRegistration]:::cm
+    CM_Blacklist -.-> Vuln_NoBlacklist
+
+    %% ==========================================
+    %% BRANCH 3: PASSWORD STORAGE
+    %% ==========================================
+    AG_Password[/Anti-Goal: Achieve PasswordExfiltration/]:::antiGoal
+    AG_Root --> AG_Password
+
+    AR_DBDump[Anti-Req: DumpDatabasePasswords]:::antiReq
+    Vuln_PlainText{{Vuln: PlainTextPasswordStorage}}:::vuln
+    AG_Password --> AR_DBDump
+    AG_Password --> Vuln_PlainText
+
+    CM_BCrypt[Req: Maintain SecurePasswordStorage]:::cm
+    CM_BCrypt -.-> Vuln_PlainText
+```
+
+## 6. Implementation Summary
+
+### 6.1 Threat-to-Implementation Mapping
 
 | Threat | Anti-Goal | Countermeasure | Implementation File | Test File |
 |--------|-----------|----------------|---------------------|-----------|
@@ -452,8 +613,13 @@ graph TD
 | I | StorageNodeFailure | Primary-Replica PostgreSQL | `docker-compose.yml`, `FailoverDataSourceConfig.java` | `FailoverTest.java` |
 | J | AppServerFailure | Nginx Load Balancer + 2 app nodes | `docker-compose.yml`, `nginx.conf` | `FailoverTest.java` |
 | K | ServiceFlooded (DoS) | Rate Limiting (100 req/min/IP) | `RateLimitFilter.java` | `RateLimitTest.java` |
+| L | LoginBypassViaSQLInjection | Parameterized login queries | `UserRepository.java` | `SqlInjectionTest.java` |
+| M | CredentialBruteForce | Rate limiting on login attempts | `RateLimitFilter.java` | `RateLimitTest.java` |
+| N | MaliciousAccountCreation | Strict input validation | `RegistrationController.java` | `RegistrationValidationTest.java` |
+| O | PasswordExfiltration | BCrypt password hashing | `RegistrationController.java` | `PasswordStorageTest.java` |
+| P | ReservedUsernameImpersonation | Reserved username blacklist | `RegistrationController.java` | `RegistrationValidationTest.java` |
 
-### 5.2 Additional Security Measures
+### 6.2 Additional Security Measures
 
 | Feature | Purpose | Implementation |
 |---------|---------|----------------|
@@ -464,21 +630,23 @@ graph TD
 | Cancel Edit | Release lock without saving | `/notes/{id}/cancel-edit` endpoint |
 | Failover UI | Graceful degradation | Banner + disabled buttons during failover |
 
-### 5.3 Test Coverage
+### 6.3 Test Coverage
 
 | Test Class | Threats Covered | Description |
 |------------|-----------------|-------------|
 | `IdorTest.java` | A, H | IDOR prevention, permission checks |
-| `SqlInjectionTest.java` | B | SQL injection prevention |
+| `SqlInjectionTest.java` | B, L | SQL injection prevention |
 | `SessionSecurityTest.java` | C | Session security headers |
 | `CacheControlTest.java` | E | Browser cache prevention |
 | `InformationLeakageTest.java` | F | Generic error messages |
 | `ThreatGSimultaneousWriteConflictTest.java` | G | Locking mechanism |
-| `RateLimitTest.java` | K | Rate limiting |
+| `RateLimitTest.java` | K, M | Rate limiting |
 | `FailoverTest.java` | I, J | Database failover |
+| `RegistrationValidationTest.java` | N, P | Registration input validation |
+| `PasswordStorageTest.java` | O | Password storage security |
 | `XssTest.java` | (bonus) | XSS prevention |
 
-### 5.4 Running the Application
+### 6.4 Running the Application
 
 ```bash
 # Start all services
@@ -494,7 +662,7 @@ docker compose stop db-master
 After getting the docker started, the app itself can be run from IntelliJ.
 The app will be available at `https://localhost:8080`.
 
-### 5.5 Running Tests
+### 6.5 Running Tests
 
 ```bash
 # Run all tests (requires db-master running on localhost:5432)
@@ -506,13 +674,14 @@ The app will be available at `https://localhost:8080`.
 
 ---
 
-## 6. Conclusion
+## 7. Conclusion
 
-This document has applied the KAOS anti-model methodology to derive security requirements for the Secure Notes application. We identified **11 threats** across three security dimensions:
+This document has applied the KAOS anti-model methodology to derive security requirements for the Secure Notes application. We identified **16 threats** across four security dimensions:
 
 - **Confidentiality (6 threats):** ID guessing, SQL injection, session hijacking, network sniffing, browser caching, information leakage
 - **Integrity (2 threats):** Simultaneous write conflicts, privilege escalation
 - **Availability (3 threats):** Storage failure, compute failure, DoS attacks
+- **Authentication (5 threats):** Login SQL injection, brute force, malicious registration, password exfiltration, reserved username impersonation
 
 Each threat was analyzed to identify vulnerabilities and derive countermeasures. All countermeasures have been implemented in the codebase with corresponding security tests.
 

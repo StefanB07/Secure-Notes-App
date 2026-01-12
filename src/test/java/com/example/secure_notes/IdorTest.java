@@ -60,7 +60,6 @@ public class IdorTest {
                         .with(user("Bob").roles("USER")))
                 .andExpect(status().isForbidden());
 
-        // --- NEW CHECK ADDED HERE ---
         // 4. Verify Bob cannot EDIT the note (New check for Threat H)
         mockMvc.perform(get(targetUrl + "/edit")
                         .with(user("Bob").roles("USER")))
