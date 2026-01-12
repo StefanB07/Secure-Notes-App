@@ -337,7 +337,7 @@ graph TD
     * **Vulnerability:** System relies on a single database instance (SPOF).
 2.  **Threat J (Compute):** `Achieve [AppServerFailure]`
     * **Anti-Goal:** `Achieve [AppServerFailure]`.
-    * **Scenario:** The REST API process on Server A crashes due to a memory leak or bug.
+    * **Scenario:** The Web Application instance on Server A crashes due to a memory leak or bug.
     * **Vulnerability:** Client requests are hardcoded to a single server IP; no automatic failover to Server B.
 3.  **Threat K (Network):** `Achieve [ServiceFlooded]` (DoS)
     * **Anti-Goal:** `Achieve [ServiceFlooded]`.
