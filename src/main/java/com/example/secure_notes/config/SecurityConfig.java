@@ -1,15 +1,15 @@
 package com.example.secure_notes.config;
 
-import org.springframework.beans.factory.annotation.Autowired; // Import this
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.LogoutConfigurer;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter; // Import this
-import org.springframework.security.web.header.writers.CacheControlHeadersWriter;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 @Configuration
 @EnableWebSecurity
@@ -23,10 +23,11 @@ public class SecurityConfig {
         http
                 .addFilterBefore(rateLimitFilter, UsernamePasswordAuthenticationFilter.class)
 
+                // Threat E: prevent browser caching of authenticated pages
                 .headers(headers -> headers
-                        .cacheControl(cache -> cache.disable())
-                        .addHeaderWriter(new CacheControlHeadersWriter())
+                        .cacheControl(cache -> {})
                 )
+
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/register", "/css/**", "/login").permitAll()
                         .anyRequest().authenticated()
@@ -35,7 +36,7 @@ public class SecurityConfig {
                         .defaultSuccessUrl("/", true)
                         .permitAll()
                 )
-                .logout(logout -> logout.permitAll());
+                .logout(LogoutConfigurer::permitAll);
 
         return http.build();
     }
