@@ -4,13 +4,17 @@ import jakarta.persistence.*;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-@Entity // JPA entity mapped to SQL table
+@Entity
 @Table(name = "notes")
 public class Note {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
+
+    // Optimistic locking – Threat G (simultaneous write conflict)
+    @Version
+    private Long version;
 
     @Column(nullable = false)
     private String title;
@@ -23,12 +27,11 @@ public class Note {
     private String ownerUsername;
 
     // Simple lock to enforce exclusive editing
-    private boolean isLocked = false;
+    @Column(nullable = false)
+    private Boolean isLocked = false;
 
     private String lockedBy; // username of locker
-
     private LocalDateTime lockedAt;
-
     private LocalDateTime createdAt;
 
     // Comma-separated usernames with read-only access
@@ -47,12 +50,15 @@ public class Note {
         this.content = content;
         this.ownerUsername = ownerUsername;
         this.createdAt = LocalDateTime.now();
+        this.isLocked = false;
     }
 
-    // Getters and setters
+    // --- Getters & setters ---
 
     public UUID getId() { return id; }
     public void setId(UUID id) { this.id = id; }
+
+    public Long getVersion() { return version; }
 
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
@@ -63,8 +69,14 @@ public class Note {
     public String getOwnerUsername() { return ownerUsername; }
     public void setOwnerUsername(String ownerUsername) { this.ownerUsername = ownerUsername; }
 
-    public boolean isLocked() { return isLocked; }
-    public void setLocked(boolean locked) { isLocked = locked; }
+    // NULL-safe
+    public boolean isLocked() {
+        return Boolean.TRUE.equals(isLocked);
+    }
+
+    public void setLocked(boolean locked) {
+        this.isLocked = locked;
+    }
 
     public String getLockedBy() { return lockedBy; }
     public void setLockedBy(String lockedBy) { this.lockedBy = lockedBy; }
@@ -76,23 +88,27 @@ public class Note {
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
 
     public String getSharedReadOnly() { return sharedReadOnly; }
-    public void setSharedReadOnly(String sharedReadOnly) { this.sharedReadOnly = sharedReadOnly; }
+    public void setSharedReadOnly(String sharedReadOnly) {
+        this.sharedReadOnly = (sharedReadOnly == null ? "" : sharedReadOnly);
+    }
 
     public String getSharedReadWrite() { return sharedReadWrite; }
-    public void setSharedReadWrite(String sharedReadWrite) { this.sharedReadWrite = sharedReadWrite; }
+    public void setSharedReadWrite(String sharedReadWrite) {
+        this.sharedReadWrite = (sharedReadWrite == null ? "" : sharedReadWrite);
+    }
 
     // --- Access control helpers ---
 
     public boolean canRead(String username) {
         if (username.equals(ownerUsername)) return true;
-        if (sharedReadOnly != null && containsUser(sharedReadOnly, username)) return true;
-        if (sharedReadWrite != null && containsUser(sharedReadWrite, username)) return true;
+        if (containsUser(sharedReadOnly, username)) return true;
+        if (containsUser(sharedReadWrite, username)) return true;
         return false;
     }
 
     public boolean canWrite(String username) {
         if (username.equals(ownerUsername)) return true;
-        if (sharedReadWrite != null && containsUser(sharedReadWrite, username)) return true;
+        if (containsUser(sharedReadWrite, username)) return true;
         return false;
     }
 
@@ -111,38 +127,29 @@ public class Note {
 
     public void addReadOnlyUser(String username) {
         if (!containsUser(sharedReadOnly, username) && !username.equals(ownerUsername)) {
-            // Ensure user is not in read-write list
             removeReadWriteUser(username);
-            if (sharedReadOnly == null || sharedReadOnly.isBlank()) {
-                sharedReadOnly = username;
-            } else {
-                sharedReadOnly = sharedReadOnly + "," + username;
-            }
+            sharedReadOnly = appendUser(sharedReadOnly, username);
         }
     }
 
     public void addReadWriteUser(String username) {
         if (!containsUser(sharedReadWrite, username) && !username.equals(ownerUsername)) {
-            // Ensure user is not in read-only list
             removeReadOnlyUser(username);
-            if (sharedReadWrite == null || sharedReadWrite.isBlank()) {
-                sharedReadWrite = username;
-            } else {
-                sharedReadWrite = sharedReadWrite + "," + username;
-            }
+            sharedReadWrite = appendUser(sharedReadWrite, username);
         }
     }
 
     public void removeReadOnlyUser(String username) {
-        if (sharedReadOnly != null) {
-            sharedReadOnly = removeFromList(sharedReadOnly, username);
-        }
+        sharedReadOnly = removeFromList(sharedReadOnly, username);
     }
 
     public void removeReadWriteUser(String username) {
-        if (sharedReadWrite != null) {
-            sharedReadWrite = removeFromList(sharedReadWrite, username);
-        }
+        sharedReadWrite = removeFromList(sharedReadWrite, username);
+    }
+
+    private String appendUser(String list, String username) {
+        if (list == null || list.isBlank()) return username;
+        return list + "," + username;
     }
 
     private String removeFromList(String list, String username) {

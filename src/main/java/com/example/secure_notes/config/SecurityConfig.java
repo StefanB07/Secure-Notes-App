@@ -1,5 +1,6 @@
 package com.example.secure_notes.config;
 
+
 import org.springframework.beans.factory.annotation.Autowired; // Import this
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
