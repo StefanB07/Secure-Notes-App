@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public class RateLimitFilter implements Filter {
 
     private static final Map<String, UserRequestState> requestCounts = new ConcurrentHashMap<>();
-    private static final int MAX_REQUESTS_PER_MINUTE = 200;
+    private static final int MAX_REQUESTS_PER_MINUTE = 100;
     private static final long TIME_WINDOW_MS = 60 * 1000;
 
     @Override

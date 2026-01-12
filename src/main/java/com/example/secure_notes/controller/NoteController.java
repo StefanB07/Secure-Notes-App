@@ -15,6 +15,7 @@ import java.security.Principal;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -74,8 +75,19 @@ public class NoteController {
                 .filter(n -> n.canRead(username) && !n.isOwner(username))
                 .collect(Collectors.toList());
 
+        // Build a map of noteId -> permission type for shared notes
+        Map<UUID, String> sharedNotePermissions = new java.util.HashMap<>();
+        for (Note note : sharedNotes) {
+            if (note.canWrite(username)) {
+                sharedNotePermissions.put(note.getId(), "readwrite");
+            } else {
+                sharedNotePermissions.put(note.getId(), "readonly");
+            }
+        }
+
         model.addAttribute("notes", ownNotes);
         model.addAttribute("sharedNotes", sharedNotes);
+        model.addAttribute("sharedNotePermissions", sharedNotePermissions);
         return "notes";
     }
 

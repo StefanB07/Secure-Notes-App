@@ -435,4 +435,93 @@ graph TD
     CM_LB -.-> Vuln_StaticIP
 ```
 
+## 5. Implementation Summary
 
+### 5.1 Threat-to-Implementation Mapping
+
+| Threat | Anti-Goal | Countermeasure | Implementation File | Test File |
+|--------|-----------|----------------|---------------------|-----------|
+| A | AccessNoteByGuessingID | UUIDs for Note IDs | `Note.java` (`@GeneratedValue(strategy=UUID)`) | `IdorTest.java` |
+| B | AccessNoteBySQLInjection | Spring Data JPA (parameterized queries) | `NoteRepository.java` | `SqlInjectionTest.java` |
+| C | SessionHijacking | Spring Security (HTTP-Only cookies) | `SecurityConfig.java` | `SessionSecurityTest.java` |
+| D | NetworkSniffing | HTTPS/TLS (Nginx + Docker) | `nginx.conf`, `docker-compose.yml` | Manual verification |
+| E | BrowserCaching | Cache-Control headers | `SecurityConfig.java` | `CacheControlTest.java` |
+| F | InformationLeakage | GlobalExceptionHandler | `GlobalExceptionHandler.java` | `InformationLeakageTest.java` |
+| G | SimultaneousWriteConflict | Application-level locking + @Version | `NoteController.java`, `Note.java` | `ThreatGSimultaneousWriteConflictTest.java` |
+| H | WriteByReadOnlyUser | Granular permission checks | `NoteController.java`, `Note.canWrite()` | `IdorTest.java` |
+| I | StorageNodeFailure | Primary-Replica PostgreSQL | `docker-compose.yml`, `FailoverDataSourceConfig.java` | `FailoverTest.java` |
+| J | AppServerFailure | Nginx Load Balancer + 2 app nodes | `docker-compose.yml`, `nginx.conf` | `FailoverTest.java` |
+| K | ServiceFlooded (DoS) | Rate Limiting (100 req/min/IP) | `RateLimitFilter.java` | `RateLimitTest.java` |
+
+### 5.2 Additional Security Measures
+
+| Feature | Purpose | Implementation |
+|---------|---------|----------------|
+| XSS Protection | Prevent script injection | Thymeleaf auto-escaping (`th:text`) |
+| CSRF Protection | Prevent cross-site request forgery | Spring Security default + `th:action` |
+| Password Hashing | Protect stored credentials | BCrypt (`SecurityConfig.java`) |
+| Lock Timeout | Prevent indefinite locks | 3-minute expiry (`NoteController.java`) |
+| Cancel Edit | Release lock without saving | `/notes/{id}/cancel-edit` endpoint |
+| Failover UI | Graceful degradation | Banner + disabled buttons during failover |
+
+### 5.3 Test Coverage
+
+| Test Class | Threats Covered | Description |
+|------------|-----------------|-------------|
+| `IdorTest.java` | A, H | IDOR prevention, permission checks |
+| `SqlInjectionTest.java` | B | SQL injection prevention |
+| `SessionSecurityTest.java` | C | Session security headers |
+| `CacheControlTest.java` | E | Browser cache prevention |
+| `InformationLeakageTest.java` | F | Generic error messages |
+| `ThreatGSimultaneousWriteConflictTest.java` | G | Locking mechanism |
+| `RateLimitTest.java` | K | Rate limiting |
+| `FailoverTest.java` | I, J | Database failover |
+| `XssTest.java` | (bonus) | XSS prevention |
+
+### 5.4 Running the Application
+
+```bash
+# Start all services
+docker compose up -d --build
+
+# View logs
+docker compose logs -f app-1
+
+# Simulate failover (stop master DB)
+docker compose stop db-master
+```
+
+After getting the docker started, the app itself can be run from IntelliJ.
+The app will be available at `https://localhost:8080`.
+
+### 5.5 Running Tests
+
+```bash
+# Run all tests (requires db-master running on localhost:5432)
+./mvnw test
+
+# Run specific test
+./mvnw test -Dtest=ThreatGSimultaneousWriteConflictTest
+```
+
+---
+
+## 6. Conclusion
+
+This document has applied the KAOS anti-model methodology to derive security requirements for the Secure Notes application. We identified **11 threats** across three security dimensions:
+
+- **Confidentiality (6 threats):** ID guessing, SQL injection, session hijacking, network sniffing, browser caching, information leakage
+- **Integrity (2 threats):** Simultaneous write conflicts, privilege escalation
+- **Availability (3 threats):** Storage failure, compute failure, DoS attacks
+
+Each threat was analyzed to identify vulnerabilities and derive countermeasures. All countermeasures have been implemented in the codebase with corresponding security tests.
+
+The application now provides defense-in-depth through:
+1. **UUIDs** preventing enumeration attacks
+2. **Spring Data JPA** preventing SQL injection
+3. **Spring Security** providing session management and CSRF protection
+4. **Application-level locking** preventing data races
+5. **Granular permission checks** enforcing RBAC
+6. **Rate limiting** preventing DoS
+7. **Primary-Replica architecture** ensuring availability
+8. **Load balancing** providing failover capability

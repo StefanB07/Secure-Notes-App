@@ -87,16 +87,16 @@
             <td th:text="${note.title}"></td>
             <td th:text="${note.ownerUsername}"></td>
             <td>
-                <span th:if="${#authentication != null and note.sharedReadWrite != null and note.sharedReadWrite.contains(#authentication.name)}" class="badge bg-success">Read/Write</span>
-                <span th:if="${#authentication != null and note.sharedReadOnly != null and note.sharedReadOnly.contains(#authentication.name)}" class="badge bg-secondary">Read-only</span>
+                <span th:if="${sharedNotePermissions[note.id] == 'readwrite'}" class="badge bg-success">Read/Write</span>
+                <span th:if="${sharedNotePermissions[note.id] == 'readonly'}" class="badge bg-secondary">Read-only</span>
             </td>
             <td>
                 <a class="btn btn-sm btn-outline-secondary" th:href="@{/notes/{id}(id=${note.id})}">View</a>
 
                 <!-- Edit for shared notes: check permission AND failover -->
-                <a th:if="${!failoverMode and #authentication != null and note.sharedReadWrite != null and note.sharedReadWrite.contains(#authentication.name)}"
+                <a th:if="${!failoverMode and sharedNotePermissions[note.id] == 'readwrite'}"
                    class="btn btn-sm btn-outline-primary" th:href="@{/notes/{id}/edit(id=${note.id})}">Edit</a>
-                <button th:if="${failoverMode and #authentication != null and note.sharedReadWrite != null and note.sharedReadWrite.contains(#authentication.name)}"
+                <button th:if="${failoverMode and sharedNotePermissions[note.id] == 'readwrite'}"
                         class="btn btn-sm btn-outline-primary disabled"
                         onclick="alert('Editing is temporarily disabled due to server issues.'); return false;">Edit</button>
             </td>
