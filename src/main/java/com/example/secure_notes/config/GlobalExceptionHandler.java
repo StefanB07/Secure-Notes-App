@@ -1,3 +1,4 @@
+
 package com.example.secure_notes.config;
 
 import org.springframework.http.HttpStatus;
@@ -31,4 +32,3 @@ public class GlobalExceptionHandler {
         return "error/generic";
     }
 }
-

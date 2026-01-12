@@ -1,3 +1,4 @@
+
 # Use an official OpenJDK runtime as a parent image
 FROM eclipse-temurin:21-jdk-alpine
 

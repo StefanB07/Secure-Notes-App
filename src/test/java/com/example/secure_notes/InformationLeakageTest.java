@@ -1,3 +1,4 @@
+
 package com.example.secure_notes;
 
 import org.junit.jupiter.api.DisplayName;
@@ -41,4 +42,3 @@ public class InformationLeakageTest {
                 .andExpect(content().string(not(containsString("org.postgresql"))));
     }
 }
-

@@ -1,3 +1,4 @@
+
 package com.example.secure_notes.config;
 
 import com.example.secure_notes.model.User;
