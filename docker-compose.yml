@@ -1,11 +1,11 @@
 version: '3.8'
+
 services:
-  # SR-10: Load Balancer (Countermeasure 10)
+  # Load Balancer (Nginx) - Optional
   load-balancer:
     image: nginx:latest
     ports:
       - "80:80"
-      - "443:443" # For SR-4 (HTTPS)
     depends_on:
       - app-1
       - app-2
@@ -16,19 +16,25 @@ services:
   app-1:
     build: .
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://db-master:5432/notes_app
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_MASTER_URL: jdbc:postgresql://db-master:5432/notes_app
+      SPRING_DATASOURCE_REPLICA_URL: jdbc:postgresql://db-replica:5432/notes_app
     depends_on:
       - db-master
+      - db-replica
 
-  # Application Node 2 (Redundancy)
+  # Application Node 2
   app-2:
     build: .
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://db-master:5432/notes_app
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_MASTER_URL: jdbc:postgresql://db-master:5432/notes_app
+      SPRING_DATASOURCE_REPLICA_URL: jdbc:postgresql://db-replica:5432/notes_app
     depends_on:
       - db-master
+      - db-replica
 
-  # Primary DB
+  # --- PRIMARY DATABASE (MASTER) ---
   db-master:
     image: postgres:15
     ports:
@@ -39,18 +45,55 @@ services:
       POSTGRES_PASSWORD: password_securizata
     volumes:
       - master_data:/var/lib/postgresql/data
+      # MOUNT THE CONFIG FILE HERE
+      - ./postgres-config/pg_hba.conf:/etc/postgresql/pg_hba.conf
+    # Tell Postgres to use this specific auth file, but keep the other settings inline
+    command:
+      - "postgres"
+      - "-c"
+      - "hba_file=/etc/postgresql/pg_hba.conf"
+      - "-c"
+      - "wal_level=replica"
+      - "-c"
+      - "hot_standby=on"
+      - "-c"
+      - "max_wal_senders=10"
+      - "-c"
+      - "wal_keep_size=64MB"
 
+  # --- SECONDARY DATABASE (REPLICA) ---
   db-replica:
     image: postgres:15
+    ports:
+      - "5433:5432"
+    environment:
+      PGPASSWORD: password_securizata
     depends_on:
       - db-master
     command: |
       bash -c "
-      until pg_isready -h db-master -p 5432; do sleep 1; done;
-      pg_basebackup -h db-master -D /var/lib/postgresql/data -U admin -v -P -X stream
-      touch /var/lib/postgresql/data/standby.signal
-      postgres
+      if [ ! -s /var/lib/postgresql/data/PG_VERSION ]; then
+        echo 'Waiting for master to be ready...'
+        until pg_isready -h db-master -p 5432 -U admin; do sleep 2; done
+      
+        echo 'Master ready. FORCE CLEANING data directory...'
+        rm -rf /var/lib/postgresql/data/*
+      
+        echo 'Cloning data from Master...'
+        pg_basebackup -h db-master -D /var/lib/postgresql/data -U admin -v -P -X stream
+      
+        echo 'Writing connection info...'
+        touch /var/lib/postgresql/data/standby.signal
+      
+        # MANUALLY ADD THE CONNECTION INFO SO IT KNOWS WHO TO FOLLOW
+        echo \"primary_conninfo = 'host=db-master port=5432 user=admin password=password_securizata application_name=db-replica'\" >> /var/lib/postgresql/data/postgresql.conf
+      fi
+      
+      docker-entrypoint.sh postgres
       "
+    volumes:
+      - replica_data:/var/lib/postgresql/data
 
 volumes:
   master_data:
+  replica_data:
