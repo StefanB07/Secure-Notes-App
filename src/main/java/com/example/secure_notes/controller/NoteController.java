@@ -3,11 +3,13 @@ package com.example.secure_notes.controller;
 import com.example.secure_notes.model.Note;
 import com.example.secure_notes.repository.NoteRepository;
 import com.example.secure_notes.repository.UserRepository;
+import com.example.secure_notes.service.DbFailoverStatusService;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.security.Principal;
 import java.time.Duration;
@@ -23,6 +25,7 @@ public class NoteController {
 
     private final NoteRepository noteRepository;
     private final UserRepository userRepository;
+    private final DbFailoverStatusService dbFailoverStatusService;
 
     /**
      * Lock lease duration. If a note stays locked longer than this without activity,
@@ -30,17 +33,36 @@ public class NoteController {
      */
     private static final Duration LOCK_TIMEOUT = Duration.ofMinutes(3);
 
-    public NoteController(NoteRepository noteRepository, UserRepository userRepository) {
+    public NoteController(NoteRepository noteRepository, UserRepository userRepository, DbFailoverStatusService dbFailoverStatusService) {
         this.noteRepository = noteRepository;
         this.userRepository = userRepository;
+        this.dbFailoverStatusService = dbFailoverStatusService;
+    }
+
+    private void addFailoverFlag(Model model) {
+        model.addAttribute("failoverMode", dbFailoverStatusService.isFailoverMode());
+    }
+
+    private boolean blockWriteIfFailover(RedirectAttributes ra) {
+        if (dbFailoverStatusService.isFailoverMode()) {
+            ra.addFlashAttribute("failoverMessage",
+                    "Currently experiencing server issues  only viewing notes is possible.");
+            return true;
+        }
+        return false;
     }
 
     // List all notes for current user (owned + shared)
     @GetMapping
-    public String listNotes(Model model, Principal principal) {
+    public String listNotes(Model model, Principal principal, @ModelAttribute("failoverMessage") String failoverMessage) {
         if (principal == null) {
             return "redirect:/login";
         }
+        addFailoverFlag(model);
+        if (failoverMessage != null && !failoverMessage.isBlank()) {
+            model.addAttribute("failoverMessage", failoverMessage);
+        }
+
         String username = principal.getName();
 
         // Get user's own notes
@@ -59,14 +81,23 @@ public class NoteController {
 
     // Show form to create a new note
     @GetMapping("/new")
-    public String newNoteForm(Model model) {
+    public String newNoteForm(Model model, RedirectAttributes ra) {
+        if (dbFailoverStatusService.isFailoverMode()) {
+            ra.addFlashAttribute("failoverMessage",
+                    "Currently experiencing server issues  creating notes is temporarily disabled.");
+            return "redirect:/notes";
+        }
+        addFailoverFlag(model);
         model.addAttribute("note", new Note());
         return "note_form";
     }
 
     // Handle create
     @PostMapping
-    public String createNote(@ModelAttribute("note") Note note, BindingResult result, Principal principal) {
+    public String createNote(@ModelAttribute("note") Note note, BindingResult result, Principal principal, RedirectAttributes ra) {
+        if (blockWriteIfFailover(ra)) {
+            return "redirect:/notes";
+        }
         if (result.hasErrors()) {
             return "note_form";
         }
@@ -93,15 +124,22 @@ public class NoteController {
             throw new AccessDeniedException("You do not have permission to view this note.");
         }
 
+        addFailoverFlag(model);
         model.addAttribute("note", note);
         model.addAttribute("isOwner", note.isOwner(username));
-        model.addAttribute("canWrite", note.canWrite(username));
+        model.addAttribute("canWrite", note.canWrite(username) && !dbFailoverStatusService.isFailoverMode());
         return "note_view";
     }
 
     // Show edit form (respect lock)
     @GetMapping("/{id}/edit")
-    public String editNoteForm(@PathVariable("id") UUID id, Model model, Principal principal) {
+    public String editNoteForm(@PathVariable("id") UUID id, Model model, Principal principal, RedirectAttributes ra) {
+        if (dbFailoverStatusService.isFailoverMode()) {
+            ra.addFlashAttribute("failoverMessage",
+                    "Currently experiencing server issues  editing is temporarily disabled.");
+            return "redirect:/notes";
+        }
+
         String username = principal.getName();
         Optional<Note> noteOpt = noteRepository.findById(id);
 
@@ -129,7 +167,8 @@ public class NoteController {
 
         // Check lock (after expiry logic)
         if (note.isLocked() && !username.equals(note.getLockedBy())) {
-            model.addAttribute("error", "Notița este blocată de " + note.getLockedBy() + ". Încercați mai târziu.");
+            addFailoverFlag(model);
+            model.addAttribute("error", "This note is locked by " + note.getLockedBy() + ". Please try again later.");
             model.addAttribute("note", note);
             model.addAttribute("isOwner", note.isOwner(username));
             model.addAttribute("canWrite", note.canWrite(username));
@@ -142,6 +181,7 @@ public class NoteController {
         note.setLockedAt(LocalDateTime.now());
         noteRepository.save(note);
 
+        addFailoverFlag(model);
         model.addAttribute("note", note);
         return "note_form";
     }
@@ -151,7 +191,12 @@ public class NoteController {
     public String updateNote(@PathVariable("id") UUID id,
                              @ModelAttribute("note") Note updated,
                              BindingResult result,
-                             Principal principal) {
+                             Principal principal,
+                             RedirectAttributes ra) {
+        if (blockWriteIfFailover(ra)) {
+            return "redirect:/notes";
+        }
+
         String username = principal.getName();
         Optional<Note> noteOpt = noteRepository.findById(id);
 
@@ -187,7 +232,10 @@ public class NoteController {
 
     // Delete (owner only)
     @PostMapping("/{id}/delete")
-    public String deleteNote(@PathVariable("id") UUID id, Principal principal) {
+    public String deleteNote(@PathVariable("id") UUID id, Principal principal, RedirectAttributes ra) {
+        if (blockWriteIfFailover(ra)) {
+            return "redirect:/notes";
+        }
         String username = principal.getName();
         noteRepository.findByIdAndOwnerUsername(id, username)
                 .ifPresent(noteRepository::delete);
@@ -196,7 +244,13 @@ public class NoteController {
 
     // Show share form (owner only)
     @GetMapping("/{id}/share")
-    public String shareNoteForm(@PathVariable("id") UUID id, Model model, Principal principal) {
+    public String shareNoteForm(@PathVariable("id") UUID id, Model model, Principal principal, RedirectAttributes ra) {
+        if (dbFailoverStatusService.isFailoverMode()) {
+            ra.addFlashAttribute("failoverMessage",
+                    "Currently experiencing server issues  sharing is temporarily disabled.");
+            return "redirect:/notes";
+        }
+
         String username = principal.getName();
         Optional<Note> noteOpt = noteRepository.findByIdAndOwnerUsername(id, username);
 
@@ -205,6 +259,7 @@ public class NoteController {
         }
 
         Note note = noteOpt.get();
+        addFailoverFlag(model);
         model.addAttribute("note", note);
 
         // Get all users except owner for sharing dropdown
@@ -222,7 +277,12 @@ public class NoteController {
     public String addSharePermission(@PathVariable("id") UUID id,
                                      @RequestParam("username") String targetUsername,
                                      @RequestParam("permission") String permission,
-                                     Principal principal) {
+                                     Principal principal,
+                                     RedirectAttributes ra) {
+        if (blockWriteIfFailover(ra)) {
+            return "redirect:/notes";
+        }
+
         String username = principal.getName();
         Optional<Note> noteOpt = noteRepository.findByIdAndOwnerUsername(id, username);
 
@@ -252,7 +312,12 @@ public class NoteController {
     @PostMapping("/{id}/unshare")
     public String removeSharePermission(@PathVariable("id") UUID id,
                                         @RequestParam("username") String targetUsername,
-                                        Principal principal) {
+                                        Principal principal,
+                                        RedirectAttributes ra) {
+        if (blockWriteIfFailover(ra)) {
+            return "redirect:/notes";
+        }
+
         String username = principal.getName();
         Optional<Note> noteOpt = noteRepository.findByIdAndOwnerUsername(id, username);
 
@@ -270,7 +335,11 @@ public class NoteController {
 
     // Cancel edit (release lock without saving)
     @PostMapping("/{id}/cancel-edit")
-    public String cancelEdit(@PathVariable("id") UUID id, Principal principal) {
+    public String cancelEdit(@PathVariable("id") UUID id, Principal principal, RedirectAttributes ra) {
+        if (blockWriteIfFailover(ra)) {
+            return "redirect:/notes";
+        }
+
         String username = principal.getName();
         Optional<Note> noteOpt = noteRepository.findById(id);
 
